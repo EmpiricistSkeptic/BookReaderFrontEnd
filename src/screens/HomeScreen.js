@@ -10,12 +10,13 @@ import {
   Image,
   Alert,
   Modal,
-  ActivityIndicator
+  ActivityIndicator,
+  Platform
 } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-//import DocumentPicker from 'react-native-document-picker'; 
+// import DocumentPicker from 'react-native-document-picker'; 
 import { AuthContext } from '../contexts/AuthContext';
 import { apiRequest } from '../services/ApiService';
 import FlashCardsScreen from './FlashCardsScreen';
@@ -25,6 +26,88 @@ import ProfileScreen from './ProfileScreen';
 
 const { width } = Dimensions.get('window');
 const Tab = createBottomTabNavigator();
+
+// Заглушки книг для демонстрации
+const mockBooks = [
+  {
+    id: 1,
+    title: "Война и мир",
+    description: "Роман-эпопея Льва Толстого, описывающий русское общество в эпоху войн против Наполеона",
+    cover_url: null,
+    book_format: "FB2",
+    authors: "Лев Толстой",
+    genres: "Классическая литература, Исторический роман",
+    language: "ru",
+    file_size: 2548736,
+    uploaded_at: "2024-01-15T10:30:00Z",
+    chapter_count: 365
+  },
+  {
+    id: 2,
+    title: "Мастер и Маргарита",
+    description: "Роман Михаила Булгакова, сочетающий философскую притчу, сатиру на советскую действительность",
+    cover_url: null,
+    book_format: "FB2", 
+    authors: "Михаил Булгаков",
+    genres: "Фантастика, Классическая литература",
+    language: "ru",
+    file_size: 1876543,
+    uploaded_at: "2024-01-20T14:15:00Z",
+    chapter_count: 32
+  },
+  {
+    id: 3,
+    title: "Преступление и наказание",
+    description: "Социально-психологический роман Фёдора Достоевского",
+    cover_url: null,
+    book_format: "FB2",
+    authors: "Фёдор Достоевский",
+    genres: "Классическая литература, Психологический роман",
+    language: "ru", 
+    file_size: 1654321,
+    uploaded_at: "2024-01-22T09:45:00Z",
+    chapter_count: 39
+  },
+  {
+    id: 4,
+    title: "Гарри Поттер и философский камень",
+    description: "Первая книга серии о юном волшебнике Гарри Поттере",
+    cover_url: null,
+    book_format: "FB2",
+    authors: "Джоан Роулинг",
+    genres: "Фэнтези, Детская литература",
+    language: "ru",
+    file_size: 987654,
+    uploaded_at: "2024-01-25T16:20:00Z",
+    chapter_count: 17
+  },
+  {
+    id: 5,
+    title: "1984",
+    description: "Роман-антиутопия Джорджа Оруэлла о тоталитарном обществе",
+    cover_url: null,
+    book_format: "FB2",
+    authors: "Джорж Оруэлл",
+    genres: "Антиутопия, Научная фантастика",
+    language: "ru",
+    file_size: 876543,
+    uploaded_at: "2024-01-28T11:10:00Z",
+    chapter_count: 24
+  },
+  {
+    id: 6,
+    title: "Анна Каренина",
+    description: "Роман Льва Толстого о трагической любви и семейных отношениях",
+    cover_url: null,
+    book_format: "FB2",
+    authors: "Лев Толстой",
+    genres: "Классическая литература, Роман",
+    language: "ru",
+    file_size: 2123456,
+    uploaded_at: "2024-02-01T13:30:00Z",
+    chapter_count: 239
+  }
+];
 
 function HomeContent({ navigation }) {
   const { user, signOut } = useContext(AuthContext);
@@ -47,8 +130,15 @@ function HomeContent({ navigation }) {
   const fetchBooks = async () => {
     try {
       setLoading(true);
-      const data = await apiRequest('/books/', 'GET');
-      setBooks(data);
+      // Имитируем загрузку данных с сервера
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Используем заглушки вместо реального API вызова
+      setBooks(mockBooks);
+      
+      // Когда будет готов API, раскомментируйте эту строку:
+      // const data = await apiRequest('/books/', 'GET');
+      // setBooks(data);
     } catch (error) {
       Alert.alert('Ошибка', error.message || 'Не удалось загрузить список книг');
     } finally {
@@ -56,60 +146,12 @@ function HomeContent({ navigation }) {
     }
   };
 
-    const handleUploadBook = async () => {
-    // 1. Используем DocumentPicker для надежного выбора файлов
-    try {
-      const file = await DocumentPicker.pickSingle({
-        // Позволяем выбирать любые файлы, но будем проверять расширение вручную
-        type: [DocumentPicker.types.allFiles],
-      });
-
-      // 2. Проверяем, что выбран именно FB2 файл
-      if (!file.name || !file.name.toLowerCase().endsWith('.fb2')) {
-        Alert.alert('Неверный формат', 'Пожалуйста, выберите файл в формате .fb2');
-        return;
-      }
-      
-      // 3. Устанавливаем состояния UI для начала загрузки
-      setShowUploadModal(false);
-      setUploading(true);
-
-      // 4. Создаем объект FormData для отправки файла
-      const formData = new FormData();
-      formData.append('file', {
-        uri: file.uri,
-        type: file.type, // DocumentPicker сам определит тип
-        name: file.name,
-      });
-
-      // 5. Выполняем запрос с помощью нашего обновленного apiRequest
-      // Передаем formData в качестве 'body'. Никаких лишних заголовков не нужно!
-      await apiRequest('/books/upload_fb2/', 'POST', formData);
-
-      Alert.alert('Успех!', 'Книга была успешно загружена.');
-      
-      // Обновляем список книг, чтобы увидеть новую
-      fetchBooks();
-
-    } catch (err) {
-      // 6. Корректно обрабатываем ошибки
-      if (DocumentPicker.isCancel(err)) {
-        // Пользователь просто закрыл окно выбора файла, это не ошибка
-        console.log('Пользователь отменил выбор файла');
-      } else {
-        // Если произошла реальная ошибка (сетевая или другая)
-        console.error('Ошибка загрузки книги:', err);
-        Alert.alert('Ошибка', err.message || 'Не удалось загрузить книгу.');
-      }
-    } finally {
-      // 7. В любом случае убираем индикатор загрузки
-      setUploading(false);
-    }
+  // Временно отключаем нативную загрузку файлов для Expo Go
+  const handleUploadBook = () => {
+    Alert.alert('Информация', 'Загрузка FB2 через Expo Go временно недоступна.');
   };
 
   const handleBookPress = (book) => {
-    // Здесь нужен отдельный экран для чтения книги
-    // navigation.navigate('BookReader', { bookId: book.id });
     Alert.alert('Информация', `Для чтения книги "${book.title}" нужен отдельный экран BookReader`);
   };
 
@@ -176,7 +218,7 @@ function HomeContent({ navigation }) {
       return (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.loadingText}>Загрузка библиотеки...</Text>
+          <Text style={styles.loadingText}>Loading the library...</Text>
         </View>
       );
     }
@@ -185,9 +227,9 @@ function HomeContent({ navigation }) {
       return (
         <View style={styles.emptyContainer}>
           <Ionicons name="library-outline" size={60} color="rgba(255,255,255,0.5)" />
-          <Text style={styles.emptyTitle}>Ваша библиотека пуста</Text>
+          <Text style={styles.emptyTitle}>Your library is empty</Text>
           <Text style={styles.emptySubtitle}>
-            Загрузите первую книгу, чтобы начать чтение
+            Upload your first book to start reading
           </Text>
           <TouchableOpacity 
             style={styles.uploadButton}
@@ -203,7 +245,7 @@ function HomeContent({ navigation }) {
     return (
       <View style={styles.booksContainer}>
         <View style={styles.booksHeader}>
-          <Text style={styles.booksTitle}>Моя библиотека</Text>
+          <Text style={styles.booksTitle}>My Books</Text>
           <TouchableOpacity 
             style={styles.addButton}
             onPress={() => setShowUploadModal(true)}
@@ -231,16 +273,12 @@ function HomeContent({ navigation }) {
         </View>
         <Text style={styles.title}>Booklingo</Text>
         <Text style={styles.subtitle}>
-          Привет, {user?.first_name || user?.username || 'пользователь'}!
+          Hello, {user?.first_name || user?.username || 'пользователь'}!
         </Text>
       </Animated.View>
 
       {renderContent()}
 
-      <TouchableOpacity onPress={signOut} style={styles.signOutButton}>
-        <Ionicons name="log-out-outline" size={18} color="#2a5298" />
-        <Text style={styles.signOutText}>Выйти</Text>
-      </TouchableOpacity>
 
       {/* Модальное окно для загрузки */}
       <Modal
@@ -253,7 +291,7 @@ function HomeContent({ navigation }) {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Загрузить книгу</Text>
             <Text style={styles.modalSubtitle}>
-              Выберите FB2 файл для загрузки
+              Выбор FB2 через Expo Go недоступен
             </Text>
             
             <View style={styles.modalButtons}>
@@ -262,14 +300,7 @@ function HomeContent({ navigation }) {
                 onPress={handleUploadBook}
               >
                 <Ionicons name="document-outline" size={20} color="#2a5298" />
-                <Text style={styles.modalButtonText}>Выбрать файл</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.modalCancelButton}
-                onPress={() => setShowUploadModal(false)}
-              >
-                <Text style={styles.modalCancelButtonText}>Отмена</Text>
+                <Text style={styles.modalButtonText}>Понятно</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -491,28 +522,6 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   uploadButtonText: {
-    color: '#2a5298',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  signOutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 25,
-    marginHorizontal: 20,
-    marginBottom: 100,
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  signOutText: {
     color: '#2a5298',
     fontSize: 16,
     fontWeight: '600',

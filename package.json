@@ -21,7 +21,10 @@
     "react-native": "0.79.5",
     "react-native-document-picker": "^9.3.1",
     "react-native-image-picker": "^8.2.1",
-    "expo-dev-client": "~5.2.4"
+    "expo-dev-client": "~5.2.4",
+    "@react-native-picker/picker": "2.11.1",
+    "expo-image-picker": "~16.1.4",
+    "react-native-gesture-handler": "~2.24.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0"

@@ -2,6 +2,8 @@ import React, { useContext } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
+import { GestureHandlerRootView } from 'react-native-gesture-handler'; 
+
 import { AuthProvider, AuthContext } from './src/contexts/AuthContext';
 
 // Экраны
@@ -13,6 +15,7 @@ import AIAssistantScreen from './src/screens/AIAssistantScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import DictionaryScreen from './src/screens/DictionaryScreen';
 import FlashCardsScreen from './src/screens/FlashCardsScreen';
+import { ConversationScreen } from './src/screens/ConversationScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -29,6 +32,7 @@ function AppNavigator() {
             <Stack.Screen name="Assistant" component={AIAssistantScreen} />
             <Stack.Screen name="Dictionary" component={DictionaryScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="Conversation" component={ConversationScreen} />
           </>
         ) : (
           <>
@@ -45,7 +49,10 @@ function AppNavigator() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppNavigator />
+      {/* 2. ДОБАВЛЕНА ОБЕРТКА ДЛЯ ВСЕГО ПРИЛОЖЕНИЯ */}
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <AppNavigator />
+      </GestureHandlerRootView>
     </AuthProvider>
   );
 }
