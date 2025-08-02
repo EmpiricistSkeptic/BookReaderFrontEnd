@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const BASE_URL = 'http://192.168.0.104:8000/api';
+const BASE_URL = 'http://192.168.0.102:8000/api';
 
 /**
  * Универсальная функция для выполнения запросов к API.
