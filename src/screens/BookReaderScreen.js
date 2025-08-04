@@ -1,5 +1,3 @@
-// file: src/screens/BookReaderScreen.js
-
 import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
 import {
   View,
@@ -16,7 +14,9 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiRequest } from '../services/ApiService';
+import { AuthContext } from '../contexts/AuthContext';
 import TranslationBottomSheet from '../components/TranslationBottomSheet';
 import { processTextToStructuredChunks } from '../utils/textProcessor';
 import { SelectionContext } from '../contexts/SelectionContext';
@@ -27,6 +27,9 @@ import Paginator from '../components/Paginator';
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const TAP_TIME_THRESHOLD = 250;
 const TAP_POS_THRESHOLD = 10;
+const PROGRESS_SAVE_DEBOUNCE_MS = 1500;
+const SETTINGS_SAVE_DEBOUNCE_MS = 1000;
+
 const themes = {
   light: { type: 'color', bg: ['#f5f5f5', '#e8e8e8'], text: '#2c3e50', tint: '#34495e', disabled: '#b0b9c1', ui_bg: 'rgba(255, 255, 255, 0.95)' },
   sepia: { type: 'color', bg: ['#f4ecd8', '#e9dec7'], text: '#5b4636', tint: '#7b6656', disabled: '#ab9a8e', ui_bg: 'rgba(244, 236, 216, 0.95)' },
@@ -34,7 +37,8 @@ const themes = {
 };
 
 const BookReaderScreen = ({ route, navigation }) => {
-  const { bookId, initialChapterOrder } = route.params;
+  const { user } = useContext(AuthContext);
+  const { bookId, initialChapterOrder, initialLastReadPage = 1 } = route.params;
   const { setSelectedWord } = useContext(SelectionContext);
 
   const [chapterData, setChapterData] = useState(null);
@@ -46,12 +50,17 @@ const BookReaderScreen = ({ route, navigation }) => {
   const [isPaginating, setIsPaginating] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
+
   const [theme, setTheme] = useState('light');
   const [fontSize, setFontSize] = useState(16);
   const [lineHeight, setLineHeight] = useState(fontSize * 1.6);
   
+  // --- Состояния для перевода СЛОВА (в BottomSheet) ---
   const [isTranslating, setIsTranslating] = useState(false);
   const [translationResult, setTranslationResult] = useState(null);
+  
+  // --- НОВИНКА: Состояние для переводов ПРЕДЛОЖЕНИЙ (чанков) ---
+  const [chunkTranslations, setChunkTranslations] = useState({});
   const [translationService, setTranslationService] = useState('deepl');
 
   const flatListRef = useRef(null);
@@ -60,49 +69,150 @@ const BookReaderScreen = ({ route, navigation }) => {
   const touchStartTimestamp = useRef(0);
   const touchStartPosition = useRef({ x: 0, y: 0 });
 
+  const isInitialChapterLoad = useRef(true);
+  const debounceTimeoutRef = useRef(null);
+  const progressToSaveRef = useRef({ order: currentOrder, page: currentPage });
+  const settingsDebounceTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const savedTheme = await AsyncStorage.getItem('reading_theme');
+        const savedFontSize = await AsyncStorage.getItem('reading_font_size');
+        if (savedTheme) setTheme(savedTheme);
+        if (savedFontSize) setFontSize(parseInt(savedFontSize, 10));
+
+        const profile = await apiRequest(`/profile/${user.id}/`);
+        if (profile.reading_theme && profile.reading_theme !== savedTheme) {
+            setTheme(profile.reading_theme);
+            await AsyncStorage.setItem('reading_theme', profile.reading_theme);
+        }
+        if (profile.reading_font_size && profile.reading_font_size !== parseInt(savedFontSize, 10)) {
+            setFontSize(profile.reading_font_size);
+            await AsyncStorage.setItem('reading_font_size', String(profile.reading_font_size));
+        }
+      } catch (error) {
+        console.error("Не удалось загрузить настройки пользователя:", error);
+      }
+    };
+
+    loadSettings();
+    fetchChapter(initialChapterOrder);
+
+    return () => {
+        if (settingsDebounceTimeoutRef.current) {
+            clearTimeout(settingsDebounceTimeoutRef.current);
+        }
+    }
+  }, []); // Убрал fetchChapter из зависимостей, чтобы избежать двойного вызова
+
   useEffect(() => {
     setLineHeight(fontSize * 1.6);
-    if (structuredContent.length > 0) {
-      setIsPaginating(true);
-    }
+    if (structuredContent.length > 0) setIsPaginating(true);
   }, [fontSize, theme]);
 
   const fetchChapter = useCallback(async (order) => {
     setLoading(true);
+    isInitialChapterLoad.current = true;
     setStructuredContent([]);
     setPages([]);
+    setChunkTranslations({}); // --- НОВИНКА: Сбрасываем переводы при смене главы
     try {
       const data = await apiRequest(`/books/${bookId}/chapter_content/?chapter=${order}`);
+      // --- ИЗМЕНЕНО: processTextToStructuredChunks теперь сам добавляет нужные индексы
       const processedContent = processTextToStructuredChunks(data.chapter.content);
       
-      setStructuredContent(processedContent.map((item, index) => ({ ...item, originalIndex: index })));
+      setStructuredContent(processedContent);
       setChapterData(data);
       setCurrentOrder(order);
-      setCurrentPage(1);
-      
+      setCurrentPage(1); 
       setIsPaginating(true);
-      
-      apiRequest(`/books/${bookId}/update_progress/`, 'POST', { chapter_order: order }).catch(console.error);
     } catch (e) {
       Alert.alert('Ошибка', `Не удалось загрузить главу ${order}.`);
     } finally {
       setLoading(false);
     }
   }, [bookId]);
-
-  useEffect(() => {
-    fetchChapter(initialChapterOrder);
-  }, [initialChapterOrder, fetchChapter]);
-
+  
   useEffect(() => {
     Animated.timing(controlsOpacity, { toValue: controlsVisible ? 1 : 0, duration: 300, useNativeDriver: true }).start();
   }, [controlsVisible]);
 
+  const saveProgress = useCallback(async (order, page) => {
+    if (!order || !page || page <= 0) return;
+    try {
+      await apiRequest(`/books/${bookId}/update_progress/`, 'POST', {
+        chapter_order: order,
+        last_read_page: page,
+      });
+    } catch (e) {
+      console.error(`Не удалось сохранить прогресс: ${e.message}`);
+    }
+  }, [bookId]);
+  
+  const saveSettings = useCallback(async (settings) => {
+    if (!user) return;
+    try {
+      await apiRequest(`/profile/${user.id}/`, 'PATCH', settings);
+    } catch (error) {
+      console.error("Не удалось сохранить настройки на сервере:", error);
+    }
+  }, [user]);
+
+  const handleThemeChange = useCallback(async (newTheme) => {
+    setTheme(newTheme);
+    await AsyncStorage.setItem('reading_theme', newTheme);
+    saveSettings({ reading_theme: newTheme });
+  }, [saveSettings]);
+  
+  const handleFontSizeChange = useCallback((newSize) => {
+    const clampedSize = Math.max(12, Math.min(28, newSize));
+    setFontSize(clampedSize);
+    AsyncStorage.setItem('reading_font_size', String(clampedSize));
+    if (settingsDebounceTimeoutRef.current) clearTimeout(settingsDebounceTimeoutRef.current);
+    settingsDebounceTimeoutRef.current = setTimeout(() => {
+        saveSettings({ reading_font_size: clampedSize });
+    }, SETTINGS_SAVE_DEBOUNCE_MS);
+  }, [saveSettings]);
+
+  useEffect(() => {
+    progressToSaveRef.current = { order: currentOrder, page: currentPage };
+    if (isInitialChapterLoad.current) return;
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+    debounceTimeoutRef.current = setTimeout(() => {
+      saveProgress(currentOrder, currentPage);
+    }, PROGRESS_SAVE_DEBOUNCE_MS);
+  }, [currentPage, currentOrder, saveProgress]);
+  
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      saveProgress(progressToSaveRef.current.order, progressToSaveRef.current.page);
+    };
+  }, [saveProgress]);
+
   const handlePaginated = useCallback((paginatedPages) => {
+    const totalPages = paginatedPages.length;
     setPages(paginatedPages);
     setIsPaginating(false);
-  }, []);
+    if (totalPages > 0 && chapterData?.chapter?.id && chapterData.chapter.total_pages !== totalPages) {
+      apiRequest(`/books/${bookId}/chapters/${chapterData.chapter.id}/update_total_pages/`, 'POST', { total_pages: totalPages })
+        .catch(err => console.error("Failed to update total_pages on backend:", err));
+    }
+    let targetPage = isInitialChapterLoad.current && currentOrder === initialChapterOrder ? initialLastReadPage : 1;
+    setTimeout(() => {
+      if (flatListRef.current && totalPages > 0) {
+        const pageIndex = Math.max(0, Math.min(targetPage - 1, totalPages - 1));
+        flatListRef.current.scrollToIndex({ index: pageIndex, animated: false });
+        setCurrentPage(targetPage);
+        isInitialChapterLoad.current = false;
+      }
+    }, 50);
+  }, [initialLastReadPage, initialChapterOrder, currentOrder, bookId, chapterData]);
 
+  const getItemLayout = (_, index) => ({ length: screenWidth, offset: screenWidth * index, index });
+
+  // Эта функция для перевода СЛОВА остается без изменений
   const handleWordPress = useCallback(async (word, chunkIndex, wordIndex) => {
     setSelectedWord({ chunkIndex, wordIndex });
     const cleanedWord = word.trim().replace(/[.,!?;:"]+$/, '');
@@ -117,11 +227,39 @@ const BookReaderScreen = ({ route, navigation }) => {
       const result = await apiRequest('/translate/', 'POST', { text: cleanedWord, book: bookId, service: translationService });
       setTranslationResult(result);
     } catch (e) {
-      setTranslationResult({ error: e.response?.data?.error || e.message || 'Не удалось выполнить перевод.' });
+      setTranslationResult({ error: e.response?.data?.error || 'Не удалось выполнить перевод.' });
     } finally {
       setIsTranslating(false);
     }
   }, [bookId, translationService, setSelectedWord]);
+
+  // --- НОВИНКА: Функция для перевода ПРЕДЛОЖЕНИЯ (чанка) ---
+  const handleChunkTranslate = useCallback(async (chunk) => {
+    const chunkIndex = chunk.originalIndex;
+    if (chunkTranslations[chunkIndex]?.text) return; // Не переводить повторно, если уже есть
+
+    setChunkTranslations(prev => ({
+        ...prev,
+        [chunkIndex]: { isTranslating: true, text: null, error: null }
+    }));
+
+    try {
+        const result = await apiRequest('/translate/', 'POST', {
+            text: chunk.content,
+            book: bookId,
+            service: translationService
+        });
+        setChunkTranslations(prev => ({
+            ...prev,
+            [chunkIndex]: { isTranslating: false, text: result.translated_text, error: null }
+        }));
+    } catch (e) {
+        setChunkTranslations(prev => ({
+            ...prev,
+            [chunkIndex]: { isTranslating: false, text: null, error: e.response?.data?.error || 'Ошибка перевода.' }
+        }));
+    }
+  }, [bookId, translationService, chunkTranslations]);
   
   const handleSheetChanges = useCallback((index) => {
     if (index === -1) setSelectedWord(null);
@@ -134,21 +272,25 @@ const BookReaderScreen = ({ route, navigation }) => {
 
   const handleTouchEnd = (event) => {
     const timeDiff = Date.now() - touchStartTimestamp.current;
-    const posDiff = Math.sqrt(Math.pow(event.nativeEvent.pageX - touchStartPosition.current.x, 2) + Math.pow(event.nativeEvent.pageY - touchStartPosition.current.y, 2));
+    const posDiff = Math.hypot(event.nativeEvent.pageX - touchStartPosition.current.x, event.nativeEvent.pageY - touchStartPosition.current.y);
     if (timeDiff < TAP_TIME_THRESHOLD && posDiff < TAP_POS_THRESHOLD) {
       bottomSheetRef.current?.close();
       setControlsVisible(prev => !prev);
     }
   };
 
-  const goToNextChapter = () => (chapterData && currentOrder < chapterData.total_chapters) && fetchChapter(currentOrder + 1);
-  const goToPrevChapter = () => (currentOrder > 1) && fetchChapter(currentOrder - 1);
+  const changeChapter = useCallback(async (newChapterOrder) => {
+    if (loading) return;
+    await saveProgress(currentOrder, currentPage);
+    fetchChapter(newChapterOrder);
+  }, [loading, currentOrder, currentPage, fetchChapter, saveProgress]);
+
+  const goToNextChapter = () => !loading && chapterData && currentOrder < chapterData.total_chapters && changeChapter(currentOrder + 1);
+  const goToPrevChapter = () => !loading && currentOrder > 1 && changeChapter(currentOrder - 1);
 
   const handleScroll = useCallback((event) => {
     const newPageNumber = Math.round(event.nativeEvent.contentOffset.x / screenWidth) + 1;
-    if (newPageNumber !== currentPage) {
-      setCurrentPage(newPageNumber);
-    }
+    if (newPageNumber > 0 && newPageNumber !== currentPage) setCurrentPage(newPageNumber);
   }, [currentPage]);
   
   const currentTheme = themes[theme];
@@ -162,6 +304,7 @@ const BookReaderScreen = ({ route, navigation }) => {
     lineHeight,
   }), [fontSize, lineHeight]);
 
+  // --- ИЗМЕНЕНО: Обновляем renderPage, чтобы передавать новые пропсы ---
   const renderPage = useCallback(({ item }) => (
     <View style={{ width: screenWidth }}>
       <BookPage
@@ -170,22 +313,19 @@ const BookReaderScreen = ({ route, navigation }) => {
         theme={currentTheme}
         fontSize={fontSize}
         lineHeight={lineHeight}
+        // --- НОВИНКА: Передаем данные для перевода предложений ---
+        onChunkTranslate={handleChunkTranslate}
+        chunkTranslations={chunkTranslations}
       />
     </View>
-  ), [handleWordPress, currentTheme, fontSize, lineHeight]);
+  ), [handleWordPress, currentTheme, fontSize, lineHeight, handleChunkTranslate, chunkTranslations]);
 
   return (
     <GestureHandlerRootView style={styles.container}>
       <LinearGradient colors={currentTheme.bg} style={styles.container}>
         <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
         
-        {isPaginating && (
-            <Paginator
-                structuredContent={structuredContent}
-                pageStyle={pageStyle}
-                onPaginated={handlePaginated}
-            />
-        )}
+        {isPaginating && <Paginator structuredContent={structuredContent} pageStyle={pageStyle} onPaginated={handlePaginated} />}
         
         <View style={styles.contentArea} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} activeOpacity={1}>
           {loading ? (
@@ -205,10 +345,13 @@ const BookReaderScreen = ({ route, navigation }) => {
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={handleScroll}
+              getItemLayout={getItemLayout}
               removeClippedSubviews={true}
-              windowSize={3}
+              windowSize={5}
               initialNumToRender={1}
-              maxToRenderPerBatch={1}
+              maxToRenderPerBatch={3}
+              // --- ИЗМЕНЕНО: Добавляем chunkTranslations в extraData для корректных перерисовок ---
+              extraData={{ theme, fontSize, pages: pages.length, chunkTranslations }} 
             />
           )}
         </View>
@@ -233,22 +376,24 @@ const BookReaderScreen = ({ route, navigation }) => {
                 <TouchableOpacity style={[styles.serviceButton, translationService === 'chatgpt' && styles.serviceButtonActive]} onPress={() => setTranslationService('chatgpt')}><Text style={[styles.serviceButtonText, {color: currentTheme.tint}]}>GPT-4o</Text></TouchableOpacity>
             </View>
             <View style={styles.settings}>
-              <TouchableOpacity onPress={() => setFontSize(s => Math.max(12, s - 1))} style={styles.iconButton}><Text style={[styles.fontSetting, {color: currentTheme.tint}]}>A-</Text></TouchableOpacity>
-              <TouchableOpacity onPress={() => setTheme('light')} style={[styles.themeButton, theme === 'light' && styles.themeButtonActive]}><View style={[styles.themeCircle, {backgroundColor: '#f5f5f5'}]} /></TouchableOpacity>
-              <TouchableOpacity onPress={() => setTheme('sepia')} style={[styles.themeButton, theme === 'sepia' && styles.themeButtonActive]}><View style={[styles.themeCircle, {backgroundColor: '#f4ecd8'}]} /></TouchableOpacity>
-              <TouchableOpacity onPress={() => setTheme('dark')} style={[styles.themeButton, theme === 'dark' && styles.themeButtonActive]}><View style={[styles.themeCircle, {backgroundColor: '#2c3e50'}]} /></TouchableOpacity>
-              <TouchableOpacity onPress={() => setFontSize(s => Math.min(28, s + 1))} style={styles.iconButton}><Text style={[styles.fontSetting, {color: currentTheme.tint}]}>A+</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => handleFontSizeChange(fontSize - 1)} style={styles.iconButton}><Text style={[styles.fontSetting, {color: currentTheme.tint}]}>A-</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => handleThemeChange('light')} style={[styles.themeButton, theme === 'light' && styles.themeButtonActive]}><View style={[styles.themeCircle, {backgroundColor: '#f5f5f5'}]} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => handleThemeChange('sepia')} style={[styles.themeButton, theme === 'sepia' && styles.themeButtonActive]}><View style={[styles.themeCircle, {backgroundColor: '#f4ecd8'}]} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => handleThemeChange('dark')} style={[styles.themeButton, theme === 'dark' && styles.themeButtonActive]}><View style={[styles.themeCircle, {backgroundColor: '#2c3e50'}]} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => handleFontSizeChange(fontSize + 1)} style={styles.iconButton}><Text style={[styles.fontSetting, {color: currentTheme.tint}]}>A+</Text></TouchableOpacity>
             </View>
           </View>
-          <TouchableOpacity onPress={goToPrevChapter} disabled={currentOrder <= 1} style={styles.navButtonLeft}><Ionicons name="chevron-back" size={24} color={currentOrder > 1 ? currentTheme.tint : currentTheme.disabled} /><Text style={[styles.navText, { color: currentOrder > 1 ? currentTheme.tint : currentTheme.disabled }]}>Prev</Text></TouchableOpacity>
-          <TouchableOpacity onPress={goToNextChapter} disabled={!chapterData || currentOrder >= totalChapters} style={styles.navButtonRight}><Text style={[styles.navText, { color: !chapterData || currentOrder < totalChapters ? currentTheme.tint : currentTheme.disabled }]}>Next</Text><Ionicons name="chevron-forward" size={24} color={!chapterData || currentOrder < totalChapters ? currentTheme.tint : currentTheme.disabled} /></TouchableOpacity>
+          <TouchableOpacity onPress={goToPrevChapter} disabled={loading || currentOrder <= 1} style={styles.navButtonLeft}><Ionicons name="chevron-back" size={24} color={currentOrder > 1 ? currentTheme.tint : currentTheme.disabled} /><Text style={[styles.navText, { color: currentOrder > 1 ? currentTheme.tint : currentTheme.disabled }]}>Prev</Text></TouchableOpacity>
+          <TouchableOpacity onPress={goToNextChapter} disabled={loading || !chapterData || currentOrder >= totalChapters} style={styles.navButtonRight}><Text style={[styles.navText, { color: !chapterData || currentOrder < totalChapters ? currentTheme.tint : currentTheme.disabled }]}>Next</Text><Ionicons name="chevron-forward" size={24} color={!chapterData || currentOrder < totalChapters ? currentTheme.tint : currentTheme.disabled} /></TouchableOpacity>
         </Animated.View>
       </LinearGradient>
+      {/* Этот компонент для перевода слов остается без изменений */}
       <TranslationBottomSheet bottomSheetRef={bottomSheetRef} isTranslating={isTranslating} translationResult={translationResult} theme={currentTheme} onChange={handleSheetChanges} />
     </GestureHandlerRootView>
   );
 };
 
+// Стили остаются без изменений
 const styles = StyleSheet.create({
   container: { flex: 1 },
   contentArea: { flex: 1, justifyContent: 'center', alignItems: 'center' },

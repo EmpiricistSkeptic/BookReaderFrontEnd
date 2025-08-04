@@ -1,4 +1,5 @@
-// src/screens/BookDetailScreen.js (НОВЫЙ ФАЙЛ)
+// src/screens/BookDetailScreen.js
+
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -6,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { apiRequest } from '../services/ApiService';
 
 const BookDetailScreen = ({ route, navigation }) => {
-  const { bookId } = route.params; // Получаем ID книги из параметров навигации
+  const { bookId } = route.params;
   
   const [bookDetail, setBookDetail] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -29,20 +30,39 @@ const BookDetailScreen = ({ route, navigation }) => {
     fetchBookDetails();
   }, [bookId]);
 
+  // =========================================================================================
+  // ==== ИЗМЕНЕНИЕ №1 =======================================================================
+  // =========================================================================================
   const handleContinueReading = () => {
-    // Если есть прогресс, берем номер последней главы, иначе начинаем с 1
+    // Определяем начальную главу и страницу. Если прогресса нет, начинаем с 1 главы, 1 страницы.
     const startChapterOrder = bookDetail?.user_progress?.last_read_chapter_order || 1;
+    const startPage = bookDetail?.user_progress?.last_read_page || 1;
     
-    navigation.navigate('BookReader', { 
+    console.log(`[Continue Reading] Navigating to Chapter: ${startChapterOrder}, Page: ${startPage}`);
+
+    // Передаем оба параметра в читалку
+    navigation.navigate('BookReader', { // Убедитесь, что имя экрана 'BookReaderScreen'
       bookId: bookDetail.id, 
-      initialChapterOrder: startChapterOrder
+      initialChapterOrder: startChapterOrder,
+      initialLastReadPage: startPage
     });
   };
 
+  // =========================================================================================
+  // ==== ИЗМЕНЕНИЕ №2 =======================================================================
+  // =========================================================================================
   const handleChapterPress = (chapter) => {
-    navigation.navigate('BookReader', { 
+    // Проверяем, является ли выбранная глава той, на которой остановился пользователь
+    const isLastReadChapter = chapter.order === bookDetail.user_progress?.last_read_chapter_order;
+    // Если да - берем последнюю страницу, если нет - начинаем с первой.
+    const startPage = isLastReadChapter ? bookDetail.user_progress.last_read_page : 1;
+
+    console.log(`[Chapter Press] Navigating to Chapter: ${chapter.order}, Page: ${startPage}`);
+
+    navigation.navigate('BookReader', { // Убедитесь, что имя экрана 'BookReaderScreen'
       bookId: bookDetail.id, 
-      initialChapterOrder: chapter.order 
+      initialChapterOrder: chapter.order,
+      initialLastReadPage: startPage
     });
   };
 
@@ -87,7 +107,6 @@ const BookDetailScreen = ({ route, navigation }) => {
           <Text style={styles.title}>{bookDetail.title}</Text>
           <Text style={styles.author}>{bookDetail.authors || 'Автор не указан'}</Text>
 
-          {/* БЛОК С КНОПКОЙ, КОТОРЫЙ МЫ ДОБАВЛЯЕМ */}
           <TouchableOpacity 
             style={styles.continueButton} 
             onPress={handleContinueReading}
@@ -115,22 +134,18 @@ const BookDetailScreen = ({ route, navigation }) => {
           <Text style={styles.sectionTitle}>Главы ({bookDetail.chapter_count})</Text>
           {bookDetail.chapters.map((chapter) => {
             
-            // Проверяем, является ли эта глава последней прочитанной
             const isLastRead = chapter.order === bookDetail.user_progress?.last_read_chapter_order;
 
             return (
               <TouchableOpacity 
                 key={chapter.id} 
-                // Применяем дополнительный стиль, если глава активна
                 style={[styles.chapterItem, isLastRead && styles.chapterItemActive]}
                 onPress={() => handleChapterPress(chapter)}
               >
-                {/* Показываем иконку глаза для активной главы */}
                 {isLastRead && <Ionicons name="eye-outline" size={18} color="#fff" style={styles.activeChapterIcon}/>}
                 
                 <Text style={styles.chapterOrder}>{chapter.order}.</Text>
                 
-                {/* Делаем текст активной главы жирным */}
                 <Text style={[styles.chapterTitle, isLastRead && styles.chapterTitleActive]}>
                   {chapter.title}
                 </Text>
@@ -172,7 +187,7 @@ const styles = StyleSheet.create({
     },
     header: {
       alignItems: 'center',
-      paddingTop: 100, // Увеличил отступ, чтобы кнопка назад не наезжала
+      paddingTop: 100,
       marginBottom: 30,
     },
     coverShadow: {

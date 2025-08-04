@@ -7,6 +7,7 @@ export const processTextToStructuredChunks = (paragraphs) => {
 
   const structuredData = [];
   const sentenceBoundaryRegex = /(?<=[.?!])\s+/;
+  let elementCounter = 0; // ДОБАВЛЕНО: Счетчик для уникальных индексов
 
   paragraphs.forEach(paragraph => {
     // Пропускаем пустые параграфы, которые могли прийти от API
@@ -18,13 +19,17 @@ export const processTextToStructuredChunks = (paragraphs) => {
 
     sentences.forEach(sentence => {
       if (sentence && sentence.trim().length > 0) {
-        // Добавляем объект с типом 'chunk'
-        structuredData.push({ type: 'chunk', content: sentence.trim() });
+        // ИЗМЕНЕНО: Добавляем объект с типом 'chunk' и уникальным индексом
+        structuredData.push({
+          type: 'chunk',
+          content: sentence.trim(),
+          originalIndex: elementCounter++, // Присваиваем и увеличиваем счетчик
+        });
       }
     });
 
-    // После каждого непустого параграфа добавляем маркер разрыва
-    structuredData.push({ type: 'paragraph_break' });
+    // ИЗМЕНЕНО: Добавляем маркер разрыва с индексом (полезно для React-ключей)
+    structuredData.push({ type: 'paragraph_break', originalIndex: elementCounter++ });
   });
 
   // Удаляем последний разрыв, если он есть, чтобы не было лишнего отступа в конце
@@ -34,4 +39,3 @@ export const processTextToStructuredChunks = (paragraphs) => {
 
   return structuredData;
 };
-

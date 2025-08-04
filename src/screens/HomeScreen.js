@@ -1,3 +1,5 @@
+// file: src/screens/HomeScreen.js
+
 import React, { useContext, useRef, useEffect, useState, useCallback } from 'react';
 import {
   View,
@@ -65,6 +67,28 @@ function HomeContent({ navigation }) {
     }).start();
     fetchBooks();
   }, [fetchBooks]);
+  
+  // ИЗМЕНЕНО: Добавлена логика "Продолжить чтение"
+  const handleBookPress = (book) => {
+    // Если есть прогресс, переходим сразу к чтению
+    if (book.user_progress) {
+      console.log('Continue reading:', {
+          bookId: book.id,
+          initialChapterOrder: book.user_progress.last_read_chapter_order,
+          initialLastReadPage: book.user_progress.last_read_page
+      });
+      navigation.navigate('BookReader', {
+        bookId: book.id,
+        initialChapterOrder: book.user_progress.last_read_chapter_order,
+        initialLastReadPage: book.user_progress.last_read_page
+      });
+    } else {
+      // Если прогресса нет, открываем детальный экран книги
+      console.log('Opening book details for the first time.');
+      navigation.navigate('BookDetail', { bookId: book.id });
+    }
+  };
+
 
   const handleUploadBook = async () => {
     setShowUploadModal(false);
@@ -112,10 +136,6 @@ function HomeContent({ navigation }) {
     } finally {
       setUploading(false);
     }
-  };
-
-  const handleBookPress = (book) => {
-    navigation.navigate('BookDetail', { bookId: book.id });
   };
 
   // --- ЛОГИКА УДАЛЕНИЯ КНИГИ ---
@@ -173,72 +193,84 @@ function HomeContent({ navigation }) {
   };
 
   // --- КОМПОНЕНТ КАРТОЧКИ КНИГИ, ОБЕРНУТЫЙ В SWIPEABLE ---
-  const renderBookItem = ({ item }) => (
-    <Swipeable
-      ref={ref => (rowRefs.current[item.id] = ref)}
-      renderRightActions={(progress, dragX) => renderRightActions(progress, dragX, item)}
-      onSwipeableWillOpen={() => {
-        // Закрываем предыдущий открытый свайп для удобства
-        if (openedRowId && openedRowId !== item.id) {
-          rowRefs.current[openedRowId]?.close();
-        }
-        setOpenedRowId(item.id);
-      }}
-      overshootRight={false}
-      rightThreshold={40}
-    >
-      <TouchableOpacity
-        style={styles.bookItem}
-        onPress={() => handleBookPress(item)}
-        activeOpacity={0.8}
+  const renderBookItem = ({ item }) => {
+    
+    // ИЗМЕНЕНО: Расчет общего прогресса по главам, а не по одной главе.
+    // Это более честное отображение общего прогресса книги.
+    let overallProgressPercent = 0;
+    if (item.user_progress && item.chapter_count > 0) {
+      overallProgressPercent = (item.user_progress.last_read_chapter_order / item.chapter_count) * 100;
+    }
+    
+    return (
+      <Swipeable
+        ref={ref => (rowRefs.current[item.id] = ref)}
+        renderRightActions={(progress, dragX) => renderRightActions(progress, dragX, item)}
+        onSwipeableWillOpen={() => {
+          if (openedRowId && openedRowId !== item.id) {
+            rowRefs.current[openedRowId]?.close();
+          }
+          setOpenedRowId(item.id);
+        }}
+        overshootRight={false}
+        rightThreshold={40}
       >
-        <View style={styles.bookCover}>
-          {item.cover_url ? (
-            <Image source={{ uri: item.cover_url }} style={styles.bookCoverImage} />
-          ) : (
-            <View style={styles.bookCoverPlaceholder}>
-              <Ionicons name="book" size={30} color="rgba(255,255,255,0.7)" />
-            </View>
-          )}
-        </View>
-
-        <View style={styles.bookInfo}>
-          <Text style={styles.bookTitle} numberOfLines={2}>
-            {item.title}
-          </Text>
-          <Text style={styles.bookAuthor} numberOfLines={1}>
-            {item.authors || 'Неизвестный автор'}
-          </Text>
-          <View style={styles.bookMeta}>
-            <Text style={styles.bookMetaText}>
-              {item.chapter_count} глав
-            </Text>
-            <Text style={styles.bookMetaText}>
-              {formatFileSize(item.file_size)}
-            </Text>
+        <TouchableOpacity
+          style={styles.bookItem}
+          onPress={() => handleBookPress(item)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.bookCover}>
+            {item.cover_url ? (
+              <Image source={{ uri: item.cover_url }} style={styles.bookCoverImage} />
+            ) : (
+              <View style={styles.bookCoverPlaceholder}>
+                <Ionicons name="book" size={30} color="rgba(255,255,255,0.7)" />
+              </View>
+            )}
           </View>
 
-          {item.user_progress && (
-            <View style={styles.progressContainer}>
-              <View style={styles.progressBar}>
-                <View style={[
-                  styles.progressFill,
-                  { width: `${item.user_progress.progress_percentage}%` }
-                ]} />
-              </View>
-              <Text style={styles.progressText}>
-                {item.user_progress.progress_percentage.toFixed(0)}%
+          <View style={styles.bookInfo}>
+            <Text style={styles.bookTitle} numberOfLines={2}>
+              {item.title}
+            </Text>
+            <Text style={styles.bookAuthor} numberOfLines={1}>
+              {item.authors || 'Неизвестный автор'}
+            </Text>
+            <View style={styles.bookMeta}>
+              <Text style={styles.bookMetaText}>
+                {item.chapter_count} глав
+              </Text>
+              <Text style={styles.bookMetaText}>
+                {formatFileSize(item.file_size)}
               </Text>
             </View>
-          )}
-        </View>
 
-        <View style={styles.bookActions}>
-          <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.6)" />
-        </View>
-      </TouchableOpacity>
-    </Swipeable>
-  );
+            {/* ИСПОЛЬЗУЕМ НОВУЮ ЛОГИКУ ПРОГРЕССА */}
+            {item.user_progress && (
+              <View style={styles.progressContainer}>
+                <View style={styles.progressBar}>
+                  <View style={[
+                    styles.progressFill,
+                    // Используем рассчитанный общий прогресс по главам
+                    { width: `${overallProgressPercent}%` } 
+                  ]} />
+                </View>
+                <Text style={styles.progressText}>
+                  {/* Отображаем общий процент */}
+                  {overallProgressPercent.toFixed(0)}%
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.bookActions}>
+            <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.6)" />
+          </View>
+        </TouchableOpacity>
+      </Swipeable>
+    )
+  };
 
   const renderContent = () => {
     if (loading && books.length === 0) {
