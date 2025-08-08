@@ -27,7 +27,9 @@
     "react-native-gesture-handler": "~2.24.0",
     "expo-document-picker": "~13.1.6",
     "@gorhom/bottom-sheet": "^4",
-    "react-native-reanimated": "~3.17.4"
+    "react-native-reanimated": "~3.17.4",
+    "expo-blur": "~14.1.5",
+    "expo-speech": "~13.1.7"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0"

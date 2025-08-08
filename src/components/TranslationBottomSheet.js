@@ -1,18 +1,21 @@
-// file: components/TranslationBottomSheet.js
+// file: src/components/TranslationBottomSheet.js
 
 import React from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+// --- TTS: Импортируем TouchableOpacity для кнопки и Ionicons для иконки ---
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 
-const TranslationBottomSheet = ({ bottomSheetRef, isTranslating, translationResult, theme, onChange }) => {
+// --- TTS: Принимаем новые пропсы onSpeak и bookLanguage ---
+const TranslationBottomSheet = ({ bottomSheetRef, isTranslating, translationResult, theme, onChange, onSpeak, bookLanguage }) => {
   const snapPoints = React.useMemo(() => ['25%', '50%'], []);
 
   return (
     <BottomSheet
       ref={bottomSheetRef}
-      index={-1} // Начинаем в скрытом состоянии
+      index={-1}
       snapPoints={snapPoints}
-      onChange={onChange} // Обработчик для отслеживания закрытия
+      onChange={onChange}
       enablePanDownToClose={true}
       backgroundStyle={{ backgroundColor: theme.ui_bg }}
       handleIndicatorStyle={{ backgroundColor: theme.tint }}
@@ -25,15 +28,31 @@ const TranslationBottomSheet = ({ bottomSheetRef, isTranslating, translationResu
             <Text style={[styles.errorText, { color: 'red' }]}>{translationResult.error}</Text>
           ) : (
             <View style={styles.resultsContainer}>
-              <Text style={[styles.originalText, { color: theme.tint }]}>
-                {translationResult.original_text}
-              </Text>
+              {/* --- TTS: Контейнер для слова и иконки озвучивания --- */}
+              <View style={styles.originalTextContainer}>
+                <Text style={[styles.originalText, { color: theme.tint }]}>
+                  {translationResult.original_text}
+                </Text>
+                {/* --- TTS: Кнопка для озвучивания слова --- */}
+                <TouchableOpacity 
+                  style={styles.speakButton}
+                  onPress={() => onSpeak(
+                    translationResult.original_text,
+                    `word-${translationResult.original_text}`, // Уникальный идентификатор
+                    bookLanguage
+                  )}
+                >
+                  <Ionicons name="volume-medium-outline" size={28} color={theme.tint} />
+                </TouchableOpacity>
+              </View>
+
               <Text style={[styles.translatedText, { color: theme.text }]}>
                 {translationResult.translated_text}
               </Text>
               <View style={[styles.divider, { backgroundColor: theme.disabled }]} />
               <Text style={[styles.metaText, { color: theme.disabled }]}>
-                {`Переведено с ${translationResult.source_language_name} • ${translationResult.service_name}`}
+                {/* Предполагаю, что эти поля есть в ответе. Если нет - адаптируйте */}
+                {`Переведено с ${translationResult.source_language || '...'} • ${translationResult.service}`}
               </Text>
             </View>
           )
@@ -52,11 +71,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // --- TTS: Новый стиль для контейнера слова и иконки ---
+  originalTextContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
   originalText: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 8,
+    // --- TTS: Добавляем отступ, чтобы текст не прилипал к иконке ---
+    marginRight: 15,
     textAlign: 'center',
+  },
+  // --- TTS: Стиль для самой кнопки (можно добавить padding для увеличения области нажатия) ---
+  speakButton: {
+    padding: 5,
   },
   translatedText: {
     fontSize: 18,
@@ -80,4 +111,3 @@ const styles = StyleSheet.create({
 });
 
 export default TranslationBottomSheet;
-

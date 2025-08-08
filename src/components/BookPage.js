@@ -6,10 +6,19 @@ import TextChunk from './TextChunk';
 
 const ParagraphBreak = () => <View style={styles.paragraphBreak} />;
 
-// ИЗМЕНЕНО: Компонент теперь принимает onChunkTranslate и chunkTranslations
-const BookPage = ({ pageContent, onWordPress, theme, fontSize, lineHeight, onChunkTranslate, chunkTranslations }) => {
-  // ИЗМЕНЕНО: Стиль теперь называется textStyle для ясности, так как он будет применяться к тексту внутри TextChunk.
-  // Убраны flex-свойства, так как они больше не нужны на этом уровне.
+// --- TTS: Компонент теперь принимает новые пропсы для озвучивания ---
+const BookPage = ({ 
+  pageContent, 
+  onWordPress, 
+  theme, 
+  fontSize, 
+  lineHeight, 
+  onChunkTranslate, 
+  chunkTranslations,
+  onSpeak,
+  speakingIdentifier,
+  bookLanguage
+}) => {
   const textStyle = useMemo(() => ({
     color: theme.text,
     fontSize: fontSize,
@@ -22,29 +31,31 @@ const BookPage = ({ pageContent, onWordPress, theme, fontSize, lineHeight, onChu
       contentContainerStyle={styles.contentContainer}
       showsVerticalScrollIndicator={false}
     >
-      {/* Рендерим массив блоков для этой страницы */}
-      {pageContent.map((item) => { // Убрали 'index' из параметров, используем item.originalIndex для ключа
+      {pageContent.map((item) => {
         if (item.type === 'chunk') {
           return (
             <TextChunk
-              // ИЗМЕНЕНО: Ключ теперь основан на уникальном originalIndex
               key={`chunk-${item.originalIndex}`}
               
               // Старые пропсы
               content={item.content}
               onWordPress={onWordPress}
-              style={textStyle} // Передаем стиль для текста
+              style={textStyle}
               chunkIndex={item.originalIndex}
               
-              // ДОБАВЛЕНО: Пробрасываем новые пропсы для логики перевода
-              theme={theme} // Тема нужна для стилизации кнопки и блока перевода
-              onTranslateRequest={() => onChunkTranslate(item)} // Создаем функцию-обработчик
-              translationState={chunkTranslations[item.originalIndex]} // Передаем состояние перевода для конкретного чанка
+              // Пропсы для перевода
+              theme={theme}
+              onTranslateRequest={() => onChunkTranslate(item)}
+              translationState={chunkTranslations[item.originalIndex]}
+              
+              // --- TTS: Пробрасываем новые пропсы для озвучивания дальше в TextChunk ---
+              onSpeak={onSpeak}
+              speakingIdentifier={speakingIdentifier}
+              bookLanguage={bookLanguage}
             />
           );
         }
         if (item.type === 'paragraph_break') {
-          // ИЗМЕНЕНО: Ключ для разрыва также использует originalIndex
           return <ParagraphBreak key={`break-${item.originalIndex}`} />;
         }
         return null;
@@ -59,12 +70,11 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     paddingHorizontal: 20,
-    // ИЗМЕНЕНО: Уменьшаем вертикальные отступы для лучшего вида с короткими чанками (предложениями)
     paddingVertical: 20,
   },
   paragraphBreak: {
     width: '100%',
-    height: 16, // Этот отступ теперь служит разрывом между абзацами
+    height: 16,
   },
 });
 

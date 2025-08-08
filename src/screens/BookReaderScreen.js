@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Speech from 'expo-speech';
 import { apiRequest } from '../services/ApiService';
 import { AuthContext } from '../contexts/AuthContext';
 import TranslationBottomSheet from '../components/TranslationBottomSheet';
@@ -55,13 +56,13 @@ const BookReaderScreen = ({ route, navigation }) => {
   const [fontSize, setFontSize] = useState(16);
   const [lineHeight, setLineHeight] = useState(fontSize * 1.6);
   
-  // --- Состояния для перевода СЛОВА (в BottomSheet) ---
   const [isTranslating, setIsTranslating] = useState(false);
   const [translationResult, setTranslationResult] = useState(null);
   
-  // --- НОВИНКА: Состояние для переводов ПРЕДЛОЖЕНИЙ (чанков) ---
   const [chunkTranslations, setChunkTranslations] = useState({});
   const [translationService, setTranslationService] = useState('deepl');
+
+  const [speakingIdentifier, setSpeakingIdentifier] = useState(null);
 
   const flatListRef = useRef(null);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
@@ -100,11 +101,12 @@ const BookReaderScreen = ({ route, navigation }) => {
     fetchChapter(initialChapterOrder);
 
     return () => {
+        Speech.stop();
         if (settingsDebounceTimeoutRef.current) {
             clearTimeout(settingsDebounceTimeoutRef.current);
         }
     }
-  }, []); // Убрал fetchChapter из зависимостей, чтобы избежать двойного вызова
+  }, []);
 
   useEffect(() => {
     setLineHeight(fontSize * 1.6);
@@ -112,14 +114,16 @@ const BookReaderScreen = ({ route, navigation }) => {
   }, [fontSize, theme]);
 
   const fetchChapter = useCallback(async (order) => {
+    Speech.stop();
+    setSpeakingIdentifier(null);
+
     setLoading(true);
     isInitialChapterLoad.current = true;
     setStructuredContent([]);
     setPages([]);
-    setChunkTranslations({}); // --- НОВИНКА: Сбрасываем переводы при смене главы
+    setChunkTranslations({});
     try {
       const data = await apiRequest(`/books/${bookId}/chapter_content/?chapter=${order}`);
-      // --- ИЗМЕНЕНО: processTextToStructuredChunks теперь сам добавляет нужные индексы
       const processedContent = processTextToStructuredChunks(data.chapter.content);
       
       setStructuredContent(processedContent);
@@ -212,7 +216,28 @@ const BookReaderScreen = ({ route, navigation }) => {
 
   const getItemLayout = (_, index) => ({ length: screenWidth, offset: screenWidth * index, index });
 
-  // Эта функция для перевода СЛОВА остается без изменений
+  const handleSpeak = useCallback((text, identifier, languageCode) => {
+    Speech.stop();
+    
+    if (speakingIdentifier === identifier) {
+      setSpeakingIdentifier(null);
+      return;
+    }
+
+    setSpeakingIdentifier(identifier);
+
+    Speech.speak(text, {
+      language: languageCode,
+      onDone: () => setSpeakingIdentifier(null),
+      onStopped: () => setSpeakingIdentifier(null),
+      onError: (error) => {
+        console.error('Ошибка синтеза речи:', error);
+        setSpeakingIdentifier(null);
+        Alert.alert('Ошибка', 'Не удалось воспроизвести текст.');
+      },
+    });
+  }, [speakingIdentifier]);
+
   const handleWordPress = useCallback(async (word, chunkIndex, wordIndex) => {
     setSelectedWord({ chunkIndex, wordIndex });
     const cleanedWord = word.trim().replace(/[.,!?;:"]+$/, '');
@@ -233,10 +258,9 @@ const BookReaderScreen = ({ route, navigation }) => {
     }
   }, [bookId, translationService, setSelectedWord]);
 
-  // --- НОВИНКА: Функция для перевода ПРЕДЛОЖЕНИЯ (чанка) ---
   const handleChunkTranslate = useCallback(async (chunk) => {
     const chunkIndex = chunk.originalIndex;
-    if (chunkTranslations[chunkIndex]?.text) return; // Не переводить повторно, если уже есть
+    if (chunkTranslations[chunkIndex]?.text) return;
 
     setChunkTranslations(prev => ({
         ...prev,
@@ -304,7 +328,6 @@ const BookReaderScreen = ({ route, navigation }) => {
     lineHeight,
   }), [fontSize, lineHeight]);
 
-  // --- ИЗМЕНЕНО: Обновляем renderPage, чтобы передавать новые пропсы ---
   const renderPage = useCallback(({ item }) => (
     <View style={{ width: screenWidth }}>
       <BookPage
@@ -313,12 +336,14 @@ const BookReaderScreen = ({ route, navigation }) => {
         theme={currentTheme}
         fontSize={fontSize}
         lineHeight={lineHeight}
-        // --- НОВИНКА: Передаем данные для перевода предложений ---
         onChunkTranslate={handleChunkTranslate}
         chunkTranslations={chunkTranslations}
+        onSpeak={handleSpeak}
+        speakingIdentifier={speakingIdentifier}
+        bookLanguage={chapterData?.chapter?.book_language || 'en-US'}
       />
     </View>
-  ), [handleWordPress, currentTheme, fontSize, lineHeight, handleChunkTranslate, chunkTranslations]);
+  ), [handleWordPress, currentTheme, fontSize, lineHeight, handleChunkTranslate, chunkTranslations, handleSpeak, speakingIdentifier, chapterData]);
 
   return (
     <GestureHandlerRootView style={styles.container}>
@@ -350,8 +375,7 @@ const BookReaderScreen = ({ route, navigation }) => {
               windowSize={5}
               initialNumToRender={1}
               maxToRenderPerBatch={3}
-              // --- ИЗМЕНЕНО: Добавляем chunkTranslations в extraData для корректных перерисовок ---
-              extraData={{ theme, fontSize, pages: pages.length, chunkTranslations }} 
+              extraData={{ theme, fontSize, pages: pages.length, chunkTranslations, speakingIdentifier }} 
             />
           )}
         </View>
@@ -387,13 +411,20 @@ const BookReaderScreen = ({ route, navigation }) => {
           <TouchableOpacity onPress={goToNextChapter} disabled={loading || !chapterData || currentOrder >= totalChapters} style={styles.navButtonRight}><Text style={[styles.navText, { color: !chapterData || currentOrder < totalChapters ? currentTheme.tint : currentTheme.disabled }]}>Next</Text><Ionicons name="chevron-forward" size={24} color={!chapterData || currentOrder < totalChapters ? currentTheme.tint : currentTheme.disabled} /></TouchableOpacity>
         </Animated.View>
       </LinearGradient>
-      {/* Этот компонент для перевода слов остается без изменений */}
-      <TranslationBottomSheet bottomSheetRef={bottomSheetRef} isTranslating={isTranslating} translationResult={translationResult} theme={currentTheme} onChange={handleSheetChanges} />
+
+      <TranslationBottomSheet 
+        bottomSheetRef={bottomSheetRef} 
+        isTranslating={isTranslating} 
+        translationResult={translationResult} 
+        theme={currentTheme} 
+        onChange={handleSheetChanges}
+        onSpeak={handleSpeak}
+        bookLanguage={chapterData?.chapter?.book_language || 'en-US'}
+      />
     </GestureHandlerRootView>
   );
 };
 
-// Стили остаются без изменений
 const styles = StyleSheet.create({
   container: { flex: 1 },
   contentArea: { flex: 1, justifyContent: 'center', alignItems: 'center' },

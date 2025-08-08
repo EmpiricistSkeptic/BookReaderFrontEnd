@@ -1,14 +1,12 @@
 // file: src/components/TextChunk.js
 
 import React, { useMemo, useCallback, useContext, useState } from 'react';
-// ИЗМЕНЕНО: Добавляем View, TouchableOpacity, ActivityIndicator и Ionicons
 import { Text, StyleSheet, View, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { parseContentToWords } from '../utils/textParser';
 import { SelectionContext } from '../contexts/SelectionContext';
 
-// Компонент Word остается АБСОЛЮТНО без изменений.
-// Он по-прежнему отвечает за перевод отдельного слова.
+// Компонент Word остается без изменений
 const Word = React.memo(({ text, onWordPress, chunkIndex, wordIndex }) => {
     const { selectedWord } = useContext(SelectionContext);
 
@@ -30,29 +28,42 @@ const Word = React.memo(({ text, onWordPress, chunkIndex, wordIndex }) => {
 });
 
 
-// ИЗМЕНЕНО: TextChunk полностью переработан
-const TextChunk = ({ content, onWordPress, style, chunkIndex, theme, onTranslateRequest, translationState }) => {
-    // Эта логика для разбора на слова остается
+// --- TTS: Компонент теперь принимает пропсы onSpeak, speakingIdentifier и bookLanguage ---
+const TextChunk = ({ 
+    content, 
+    onWordPress, 
+    style, 
+    chunkIndex, 
+    theme, 
+    onTranslateRequest, 
+    translationState,
+    onSpeak,
+    speakingIdentifier,
+    bookLanguage
+}) => {
     const words = useMemo(() => parseContentToWords(content), [content]);
-    
-    // ДОБАВЛЕНО: Локальное состояние для управления видимостью блока с переводом
     const [isTranslationVisible, setIsTranslationVisible] = useState(false);
 
-    // ДОБАВЛЕНО: Обработчик нажатия на кнопку перевода
+    // --- TTS: Определяем, озвучивается ли именно этот чанк в данный момент ---
+    const isSpeaking = useMemo(() => speakingIdentifier === `chunk-${chunkIndex}`, [speakingIdentifier, chunkIndex]);
+
     const handleTranslatePress = useCallback(() => {
-        // Если перевода еще нет в глобальном стейте, запрашиваем его
         if (!translationState) {
             onTranslateRequest();
         }
-        // Переключаем локальную видимость блока с переводом
         setIsTranslationVisible(prev => !prev);
     }, [translationState, onTranslateRequest]);
 
+    // --- TTS: Обработчик для кнопки озвучивания ---
+    const handleSpeakPress = useCallback(() => {
+        // Вызываем функцию из BookReaderScreen
+        onSpeak(content, `chunk-${chunkIndex}`, bookLanguage);
+    }, [onSpeak, content, chunkIndex, bookLanguage]);
+
     return (
-        // ИЗМЕНЕНО: Все обернуто во View для гибкой верстки
         <View style={styles.chunkContainer}>
             <View style={styles.originalContentWrapper}>
-                {/* Оригинальный текст с кликабельными словами. Внешний вид задается через `style` */}
+                {/* Оригинальный текст с кликабельными словами */}
                 <Text style={[style, styles.textBlock]}>
                     {words.map((wordData, mapIndex) => {
                         if (wordData.type === 'word') {
@@ -70,13 +81,26 @@ const TextChunk = ({ content, onWordPress, style, chunkIndex, theme, onTranslate
                     })}
                 </Text>
 
-                {/* ДОБАВЛЕНО: Кнопка для перевода всего чанка */}
-                <TouchableOpacity onPress={handleTranslatePress} style={styles.translateButton}>
-                    <Ionicons name="language-outline" size={22} color={theme.tint} />
-                </TouchableOpacity>
+                {/* --- TTS: Контейнер для кнопок действий (озвучивание и перевод) --- */}
+                <View style={styles.actionsContainer}>
+                    {/* Кнопка для озвучивания всего чанка */}
+                    <TouchableOpacity onPress={handleSpeakPress} style={styles.actionButton}>
+                        <Ionicons 
+                            // --- TTS: Меняем иконку и цвет в зависимости от состояния озвучивания ---
+                            name={isSpeaking ? "volume-high" : "volume-medium-outline"} 
+                            size={22} 
+                            color={isSpeaking ? '#3498db' : theme.tint} // Яркий цвет для активного состояния
+                        />
+                    </TouchableOpacity>
+
+                    {/* Кнопка для перевода всего чанка */}
+                    <TouchableOpacity onPress={handleTranslatePress} style={styles.actionButton}>
+                        <Ionicons name="language-outline" size={22} color={theme.tint} />
+                    </TouchableOpacity>
+                </View>
             </View>
 
-            {/* ДОБАВЛЕНО: Условный рендеринг блока с результатом перевода */}
+            {/* Блок с результатом перевода остается без изменений */}
             {isTranslationVisible && translationState && (
                 <View style={[styles.translationContainer, { borderColor: theme.tint, backgroundColor: 'rgba(128, 128, 128, 0.08)' }]}>
                     {translationState.isTranslating ? (
@@ -94,25 +118,31 @@ const TextChunk = ({ content, onWordPress, style, chunkIndex, theme, onTranslate
 
 export default React.memo(TextChunk);
 
-// ИЗМЕНЕНО: Добавлены новые стили и обновлены старые
 const styles = StyleSheet.create({
     selectedWord: {
         backgroundColor: 'rgba(52, 152, 219, 0.3)',
         borderRadius: 3,
     },
     chunkContainer: {
-        marginBottom: 4, // Небольшой отступ между предложениями
+        marginBottom: 4,
     },
     originalContentWrapper: {
         flexDirection: 'row',
         alignItems: 'flex-start',
+        justifyContent: 'space-between', // Распределяем место между текстом и кнопками
     },
     textBlock: {
-        flex: 1, // Позволяет тексту занимать все доступное место по ширине
-        marginRight: 8, // Отступ справа от кнопки перевода
+        flex: 1,
+        marginRight: 8,
     },
-    translateButton: {
-        paddingTop: 8, // Смещаем кнопку немного вниз для лучшего визуального выравнивания
+    // --- TTS: Новый контейнер для группировки кнопок ---
+    actionsContainer: {
+        flexDirection: 'column', // Располагаем кнопки друг под другом
+        alignItems: 'center',
+    },
+    // --- TTS: Переименовано из translateButton в actionButton для универсальности ---
+    actionButton: {
+        paddingVertical: 6, // Увеличиваем область нажатия
         paddingHorizontal: 4,
     },
     translationContainer: {
@@ -124,6 +154,6 @@ const styles = StyleSheet.create({
     },
     translationText: {
         fontStyle: 'italic',
-        fontSize: 14, // Перевод делаем немного меньше основного текста
+        fontSize: 14,
     }
 });

@@ -1,61 +1,129 @@
 // screens/CardListScreen.js
 
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import React, { useCallback } from 'react';
+import { 
+    View, Text, FlatList, StyleSheet, ActivityIndicator, Alert, TouchableOpacity 
+} from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { apiRequest } from '../services/ApiService';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Swipeable } from 'react-native-gesture-handler';
+import { Ionicons } from '@expo/vector-icons';
 
-const CardItem = ({ item }) => (
-    <View style={styles.card}>
-        <Text style={styles.word}>{item.word}</Text>
-        <Text style={styles.translation}>{item.translation}</Text>
-        {item.example ? <Text style={styles.example}>"{item.example}"</Text> : null}
-    </View>
-);
+// --- ИЗМЕНЕНИЕ: CardItem теперь отображает статус ---
+const CardItem = ({ item, onDelete, onEdit }) => {
+    const renderRightActions = () => (
+        <View style={styles.swipeActionContainer}>
+            <TouchableOpacity style={[styles.swipeButton, styles.editButton]} onPress={onEdit}>
+                <Ionicons name="create-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.swipeButton, styles.deleteButton]} onPress={onDelete}>
+                <Ionicons name="trash-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+        </View>
+    );
 
+    return (
+        <Swipeable renderRightActions={renderRightActions}>
+            <TouchableOpacity activeOpacity={0.8} onPress={onEdit}>
+                <View style={styles.card}>
+                    <View style={styles.cardHeader}>
+                        <View>
+                            <Text style={styles.word}>{item.word}</Text>
+                            <Text style={styles.translation}>{item.translation}</Text>
+                        </View>
+                        {/* Добавляем значок статуса */}
+                        <View style={[styles.statusIndicator, {backgroundColor: item.is_learning ? '#f0ad4e' : '#5cb85c'}]}>
+                            <Ionicons 
+                                name={item.is_learning ? "hourglass-outline" : "sync-circle-outline"} 
+                                size={14} 
+                                color="#fff" 
+                            />
+                            <Text style={styles.statusText}>{item.is_learning ? 'Изучение' : 'Повтор'}</Text>
+                        </View>
+                    </View>
+                    {item.example ? <Text style={styles.example}>"{item.example}"</Text> : null}
+                </View>
+            </TouchableOpacity>
+        </Swipeable>
+    );
+};
+
+// --- Основной компонент экрана остается без изменений ---
+// Он уже идеально спроектирован для работы с новой логикой
 export default function CardListScreen({ route, navigation }) {
-    // <-- ИЗМЕНЕНИЕ 1: Добавляем безопасную проверку на случай, если route.params не существует
     const { title = 'Карточки', filter = {} } = route.params || {};
     
-    const [cards, setCards] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
+    // --- Состояния ---
+    const [cards, setCards] = React.useState([]);
+    const [isLoading, setIsLoading] = React.useState(true);
+    const [nextPage, setNextPage] = React.useState(null);
+    const [isFetchingMore, setIsFetchingMore] = React.useState(false);
 
-    useEffect(() => {
-        navigation.setOptions({ title });
+    const fetchCards = useCallback(async (isInitial = true) => {
+        if (!isInitial && !nextPage) return;
+        if (isFetchingMore) return;
+        
+        if (isInitial) setIsLoading(true); else setIsFetchingMore(true);
 
-        const fetchCards = async () => {
-            setIsLoading(true);
-            try {
-                const queryString = new URLSearchParams(filter).toString();
-                const data = await apiRequest(`/flashcards/?${queryString}`, 'GET');
+        try {
+            const url = isInitial 
+                ? `/flashcards/?${new URLSearchParams(filter).toString()}` 
+                : nextPage.replace(/^http:/, 'https:');
+            
+            const data = await apiRequest(url, 'GET');
 
-                // <-- ИЗМЕНЕНИЕ 2: Добавляем надежную проверку ответа от API
-                // Этот блок кода не даст приложению упасть.
-                if (data && Array.isArray(data.results)) {
-                    // Случай 1: Пагинация включена, данные в поле 'results'
-                    setCards(data.results);
-                } else if (Array.isArray(data)) {
-                    // Случай 2: Пагинация выключена, API вернул просто массив
-                    setCards(data);
-                } else {
-                    // Случай 3: Пришел некорректный ответ (не объект, не массив)
-                    // Устанавливаем пустой массив, чтобы избежать падения FlatList
-                    console.warn("Получен некорректный формат данных от API:", data);
-                    setCards([]);
-                }
-                
-            } catch (error) {
-                // В случае ошибки также устанавливаем пустой массив
-                setCards([]); 
-                Alert.alert('Ошибка', 'Не удалось загрузить список карточек.');
-                console.error("Failed to fetch cards:", error);
-            } finally {
-                setIsLoading(false);
+            if (data && Array.isArray(data.results)) {
+                setCards(prev => isInitial ? data.results : [...prev, ...data.results]);
+                setNextPage(data.next);
+            } else if (isInitial && Array.isArray(data)) { // Для API без пагинации
+                setCards(data);
+                setNextPage(null);
+            } else if (isInitial) {
+                console.warn("Получен некорректный формат данных от API:", data);
+                setCards([]);
             }
-        };
+        } catch (error) {
+            if (isInitial) setCards([]);
+            Alert.alert('Ошибка', 'Не удалось загрузить список карточек.');
+        } finally {
+            setIsLoading(false);
+            setIsFetchingMore(false);
+        }
+    }, [filter, nextPage, isFetchingMore]);
 
-        fetchCards();
-    }, [title, filter, navigation]); // <-- ИЗМЕНЕНИЕ 3: Добавляем 'navigation' в массив зависимостей
+    useFocusEffect(
+      useCallback(() => {
+        navigation.setOptions({ title });
+        fetchCards(true);
+      }, [title, filter, navigation])
+    );
+
+    const handleLoadMore = () => {
+        fetchCards(false);
+    };
+
+    const handleDelete = (cardId) => {
+        Alert.alert('Удалить карточку?', 'Это действие нельзя будет отменить.', [
+            { text: 'Отмена', style: 'cancel' },
+            {
+                text: 'Удалить',
+                style: 'destructive',
+                onPress: async () => {
+                    try {
+                        await apiRequest(`/flashcards/${cardId}/`, 'DELETE');
+                        setCards(prev => prev.filter(card => card.id !== cardId));
+                    } catch (error) {
+                        Alert.alert('Ошибка', 'Не удалось удалить карточку.');
+                    }
+                }
+            }
+        ]);
+    };
+
+    const handleEdit = (card) => {
+        Alert.alert('Редактирование', `В разработке...`);
+    };
 
     if (isLoading) {
         return (
@@ -64,46 +132,92 @@ export default function CardListScreen({ route, navigation }) {
             </LinearGradient>
         );
     }
-    
-    // <-- ИЗМЕНЕНИЕ 4: Проверяем именно 'cards' на случай, если он стал null или undefined
-    if (!cards || cards.length === 0) {
-        return (
-            <LinearGradient colors={['#1e3c72', '#2a5298']} style={styles.loaderContainer}>
-                <Text style={styles.emptyText}>Здесь пока нет карточек</Text>
-            </LinearGradient>
-        );
-    }
 
     return (
         <LinearGradient colors={['#1e3c72', '#2a5298']} style={styles.container}>
             <FlatList
                 data={cards}
-                renderItem={({ item }) => <CardItem item={item} />}
+                renderItem={({ item }) => (
+                    <CardItem 
+                        item={item} 
+                        onDelete={() => handleDelete(item.id)}
+                        onEdit={() => handleEdit(item)}
+                    />
+                )}
                 keyExtractor={(item) => item.id.toString()}
-                contentContainerStyle={styles.list}
+                contentContainerStyle={cards.length > 0 ? styles.list : styles.loaderContainer}
+                ListEmptyComponent={<Text style={styles.emptyText}>Здесь пока нет карточек</Text>}
+                onEndReached={handleLoadMore}
+                onEndReachedThreshold={0.5}
+                ListFooterComponent={isFetchingMore ? <ActivityIndicator color="#fff" style={{ marginVertical: 20 }} /> : null}
             />
         </LinearGradient>
     );
 }
 
-// Стили остаются без изменений
 const styles = StyleSheet.create({
     container: { flex: 1 },
     loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    list: { padding: 10 },
+    list: { padding: 15 },
     card: {
-        backgroundColor: 'rgba(255, 255, 255, 0.95)',
-        borderRadius: 10,
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: 12,
         padding: 20,
-        marginBottom: 10,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-        elevation: 5,
+        marginBottom: 15,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.2)',
     },
-    word: { fontSize: 18, fontWeight: 'bold', color: '#1e3c72' },
-    translation: { fontSize: 16, color: '#333', marginTop: 5 },
-    example: { fontSize: 14, color: '#555', fontStyle: 'italic', marginTop: 10, borderLeftColor: '#ccc', borderLeftWidth: 3, paddingLeft: 10},
-    emptyText: { color: '#fff', fontSize: 18 }
+    // ИЗМЕНЕНИЕ: Стили для отображения статуса
+    cardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: 10,
+    },
+    statusIndicator: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    statusText: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: '600',
+        marginLeft: 5,
+    },
+    word: { fontSize: 20, fontWeight: '600', color: '#fff' },
+    translation: { fontSize: 16, color: 'rgba(255,255,255,0.8)', marginTop: 5 },
+    example: { 
+        fontSize: 14, 
+        color: 'rgba(255,255,255,0.7)', 
+        fontStyle: 'italic', 
+        marginTop: 10, 
+        borderLeftColor: 'rgba(255,255,255,0.4)', 
+        borderLeftWidth: 3, 
+        paddingLeft: 10
+    },
+    emptyText: { color: '#fff', fontSize: 18, opacity: 0.8 },
+    swipeActionContainer: {
+        flexDirection: 'row',
+        width: 140,
+        marginBottom: 15,
+    },
+    swipeButton: {
+        justifyContent: 'center',
+        alignItems: 'center',
+        width: 70,
+        height: '100%',
+    },
+    editButton: {
+        backgroundColor: '#f0ad4e',
+        borderTopLeftRadius: 12,
+        borderBottomLeftRadius: 12,
+    },
+    deleteButton: {
+        backgroundColor: '#d9534f',
+        borderTopRightRadius: 12,
+        borderBottomRightRadius: 12,
+    },
 });
