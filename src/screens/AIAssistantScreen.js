@@ -10,7 +10,7 @@ import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getConversations, createConversation, deleteConversation } from '../services/ConversationService';
 
-// Компонент карточки диалога с новым дизайном
+// Компонент ConversationItem остается без изменений
 const ConversationItem = ({ item, onPress, onDelete }) => {
   const renderRightActions = (progress, dragX) => {
     const trans = dragX.interpolate({
@@ -54,52 +54,83 @@ const ConversationItem = ({ item, onPress, onDelete }) => {
 
 
 export default function AIAssistantScreen({ navigation }) {
-  // Получаем точные отступы для текущего устройства
   const insets = useSafeAreaInsets();
 
-  // Ваша оригинальная логика состояния
+  // --- ИЗМЕНЕНИЕ 1: Добавляем состояния для пагинации ---
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [isMoreLoading, setIsMoreLoading] = useState(false);
 
-  // Ваша оригинальная логика загрузки данных
-  const loadConversations = async () => {
+  // --- ИЗМЕНЕНИЕ 2: Обновляем функцию загрузки для работы с пагинацией ---
+  const loadConversations = async (page = 1) => {
+    if (page > 1 && isMoreLoading) return;
+    if (page === 1) setLoading(true); else setIsMoreLoading(true);
+    
     try {
-      const data = await getConversations();
-      setConversations(data);
+      // getConversations теперь должна принимать номер страницы
+      const data = await getConversations(page); 
+      // Проверяем, что получили правильный объект пагинации
+      if (data && Array.isArray(data.results)) {
+        setConversations(prev => (page === 1 ? data.results : [...prev, ...data.results]));
+        setHasNextPage(data.next !== null);
+        setCurrentPage(page);
+      } else {
+        // Обработка случая, если API вернул что-то не то
+        setConversations([]);
+        setHasNextPage(false);
+      }
     } catch (error) {
-      console.error("Ошибка загрузки диалогов:", error);
+      console.error("Error loading dialogs:", error);
+      Alert.alert("Error", "Failed to load dialogues.");
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setIsMoreLoading(false);
     }
   };
 
-  // Ваша оригинальная логика useFocusEffect
+  // --- ИЗМЕНЕНИЕ 3: Убедитесь, что ваш ConversationService поддерживает пагинацию ---
+  // Вам нужно будет изменить функцию getConversations в вашем сервисе,
+  // чтобы она принимала номер страницы и добавляла его к URL, например:
+  // export const getConversations = (page = 1) => apiRequest(`/conversations/?page=${page}`, 'GET');
+
+
+  // useFocusEffect теперь просто вызывает обновление с первой страницы
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      loadConversations();
+      loadConversations(1);
     }, [])
   );
 
-  // Ваша оригинальная логика обновления списка
+  // handleRefresh также вызывает обновление с первой страницы
   const handleRefresh = () => {
     setRefreshing(true);
-    loadConversations();
+    loadConversations(1);
   };
 
-  // Ваша оригинальная логика создания диалога
-  const handleNewConversation = async () => {
-    try {
-      const newConversation = await createConversation();
-      navigation.navigate('Conversation', { conversationId: newConversation.id });
-    } catch (error) {
-      console.error("Ошибка создания диалога:", error);
+  // --- ИЗМЕНЕНИЕ 4: Добавляем функцию для подгрузки следующих страниц ---
+  const handleLoadMore = () => {
+    if (hasNextPage && !isMoreLoading) {
+      loadConversations(currentPage + 1);
     }
   };
 
-  // Ваша оригинальная логика удаления диалога
+  // Логика создания диалога не меняется, но после создания мы обновим список
+  const handleNewConversation = async () => {
+    try {
+      const newConversation = await createConversation();
+      // После создания нового чата, переходим на него. 
+      // Возвращаясь назад, useFocusEffect обновит список.
+      navigation.navigate('Conversation', { conversationId: newConversation.id });
+    } catch (error) {
+      console.error("Error creating dialog:", error);
+    }
+  };
+
+  // Логика удаления не меняется
   const handleDelete = (conversationId) => {
     Alert.alert(
       "Delete dialogue?",
@@ -123,7 +154,8 @@ export default function AIAssistantScreen({ navigation }) {
     );
   };
 
-  if (loading) {
+  // Состояние загрузки теперь проверяем так:
+  if (loading && conversations.length === 0) {
     return (
       <LinearGradient colors={['#1e3c72', '#2a5298']} style={styles.centered}>
         <ActivityIndicator size="large" color="#fff" />
@@ -161,6 +193,10 @@ export default function AIAssistantScreen({ navigation }) {
                 refreshControl={
                     <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#fff" />
                 }
+                // --- ИЗМЕНЕНИЕ 5: Добавляем свойства для пагинации в FlatList ---
+                onEndReached={handleLoadMore}
+                onEndReachedThreshold={0.5}
+                ListFooterComponent={() => isMoreLoading ? <ActivityIndicator style={{ marginVertical: 20 }} color="#fff" /> : null}
             />
 
             <TouchableOpacity onPress={handleNewConversation} style={[styles.fabContainer, { bottom: insets.bottom + 45 }]}>
@@ -175,7 +211,7 @@ export default function AIAssistantScreen({ navigation }) {
   );
 }
 
-// Новые, переработанные стили
+// Стили остаются без изменений
 const styles = StyleSheet.create({
     container: {
         flex: 1,

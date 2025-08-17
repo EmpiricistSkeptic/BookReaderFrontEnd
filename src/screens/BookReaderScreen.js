@@ -18,11 +18,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Speech from 'expo-speech';
 import { apiRequest } from '../services/ApiService';
 import { AuthContext } from '../contexts/AuthContext';
+import { SelectionContext } from '../contexts/SelectionContext';
 import TranslationBottomSheet from '../components/TranslationBottomSheet';
 import { processTextToStructuredChunks } from '../utils/textProcessor';
-import { SelectionContext } from '../contexts/SelectionContext';
 import BookPage from '../components/BookPage';
 import Paginator from '../components/Paginator';
+import AddCardModal from '../components/AddCardModal'; // Импортируем модалку
 
 // --- Константы ---
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -42,38 +43,43 @@ const BookReaderScreen = ({ route, navigation }) => {
   const { bookId, initialChapterOrder, initialLastReadPage = 1 } = route.params;
   const { setSelectedWord } = useContext(SelectionContext);
 
+  // --- Состояния ---
   const [chapterData, setChapterData] = useState(null);
   const [structuredContent, setStructuredContent] = useState([]);
   const [pages, setPages] = useState([]);
   const [currentOrder, setCurrentOrder] = useState(initialChapterOrder);
-  
   const [loading, setLoading] = useState(true);
   const [isPaginating, setIsPaginating] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
-
   const [theme, setTheme] = useState('light');
   const [fontSize, setFontSize] = useState(16);
   const [lineHeight, setLineHeight] = useState(fontSize * 1.6);
-  
   const [isTranslating, setIsTranslating] = useState(false);
   const [translationResult, setTranslationResult] = useState(null);
-  
   const [chunkTranslations, setChunkTranslations] = useState({});
-  const [translationService, setTranslationService] = useState('deepl');
-
+  const [translationService, setTranslationService] = useState('microsoft');
   const [speakingIdentifier, setSpeakingIdentifier] = useState(null);
 
+  // --- НОВЫЕ СОСТОЯНИЯ ДЛЯ ИНТЕГРАЦИИ МОДАЛЬНОГО ОКНА ---
+  const [isCardModalVisible, setCardModalVisible] = useState(false);
+  const [contextSentence, setContextSentence] = useState('');
+  // когда true — временно не рендерим bottom sheet чтобы не мешал модалке
+  const [suppressBottomSheet, setSuppressBottomSheet] = useState(false);
+
+  // --- Рефы ---
   const flatListRef = useRef(null);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const bottomSheetRef = useRef(null);
   const touchStartTimestamp = useRef(0);
   const touchStartPosition = useRef({ x: 0, y: 0 });
-
   const isInitialChapterLoad = useRef(true);
   const debounceTimeoutRef = useRef(null);
   const progressToSaveRef = useRef({ order: currentOrder, page: currentPage });
   const settingsDebounceTimeoutRef = useRef(null);
+
+  // реф для контролируемого таймаута открытия модалки (чтобы можно было очистить)
+  const openModalTimeoutRef = useRef(null);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -93,7 +99,7 @@ const BookReaderScreen = ({ route, navigation }) => {
             await AsyncStorage.setItem('reading_font_size', String(profile.reading_font_size));
         }
       } catch (error) {
-        console.error("Не удалось загрузить настройки пользователя:", error);
+        console.error("Failed to load user settings:", error);
       }
     };
 
@@ -104,6 +110,10 @@ const BookReaderScreen = ({ route, navigation }) => {
         Speech.stop();
         if (settingsDebounceTimeoutRef.current) {
             clearTimeout(settingsDebounceTimeoutRef.current);
+        }
+        if (openModalTimeoutRef.current) {
+          clearTimeout(openModalTimeoutRef.current);
+          openModalTimeoutRef.current = null;
         }
     }
   }, []);
@@ -132,7 +142,7 @@ const BookReaderScreen = ({ route, navigation }) => {
       setCurrentPage(1); 
       setIsPaginating(true);
     } catch (e) {
-      Alert.alert('Ошибка', `Не удалось загрузить главу ${order}.`);
+      Alert.alert('Error', `Failed to load chapter ${order}.`);
     } finally {
       setLoading(false);
     }
@@ -150,7 +160,7 @@ const BookReaderScreen = ({ route, navigation }) => {
         last_read_page: page,
       });
     } catch (e) {
-      console.error(`Не удалось сохранить прогресс: ${e.message}`);
+      console.error(`Failed to save progress: ${e.message}`);
     }
   }, [bookId]);
   
@@ -159,7 +169,7 @@ const BookReaderScreen = ({ route, navigation }) => {
     try {
       await apiRequest(`/profile/${user.id}/`, 'PATCH', settings);
     } catch (error) {
-      console.error("Не удалось сохранить настройки на сервере:", error);
+      console.error("Failed to save settings to server:", error);
     }
   }, [user]);
 
@@ -231,20 +241,25 @@ const BookReaderScreen = ({ route, navigation }) => {
       onDone: () => setSpeakingIdentifier(null),
       onStopped: () => setSpeakingIdentifier(null),
       onError: (error) => {
-        console.error('Ошибка синтеза речи:', error);
+        console.error('Speech synthesis error:', error);
         setSpeakingIdentifier(null);
-        Alert.alert('Ошибка', 'Не удалось воспроизвести текст.');
+        Alert.alert('Error', 'The text could not be reproduced.');
       },
     });
   }, [speakingIdentifier]);
 
-  const handleWordPress = useCallback(async (word, chunkIndex, wordIndex) => {
-    setSelectedWord({ chunkIndex, wordIndex });
+  // Функция теперь принимает весь объект chunk, чтобы получить из него контекст
+  const handleWordPress = useCallback(async (word, chunk, wordIndexInChunk) => {
+    setSelectedWord({ chunkIndex: chunk.originalIndex, wordIndex: wordIndexInChunk });
     const cleanedWord = word.trim().replace(/[.,!?;:"]+$/, '');
     if (cleanedWord.length === 0) {
       setSelectedWord(null);
       return;
     }
+    
+    // Сохраняем полное предложение как контекст
+    setContextSentence(chunk.content); 
+
     bottomSheetRef.current?.expand();
     setIsTranslating(true);
     setTranslationResult(null);
@@ -252,36 +267,23 @@ const BookReaderScreen = ({ route, navigation }) => {
       const result = await apiRequest('/translate/', 'POST', { text: cleanedWord, book: bookId, service: translationService });
       setTranslationResult(result);
     } catch (e) {
-      setTranslationResult({ error: e.response?.data?.error || 'Не удалось выполнить перевод.' });
+      setTranslationResult({ error: e.response?.data?.error || 'Failed to complete the translation.' });
     } finally {
       setIsTranslating(false);
     }
   }, [bookId, translationService, setSelectedWord]);
-
+  
   const handleChunkTranslate = useCallback(async (chunk) => {
     const chunkIndex = chunk.originalIndex;
     if (chunkTranslations[chunkIndex]?.text) return;
 
-    setChunkTranslations(prev => ({
-        ...prev,
-        [chunkIndex]: { isTranslating: true, text: null, error: null }
-    }));
+    setChunkTranslations(prev => ({ ...prev, [chunkIndex]: { isTranslating: true, text: null, error: null }}));
 
     try {
-        const result = await apiRequest('/translate/', 'POST', {
-            text: chunk.content,
-            book: bookId,
-            service: translationService
-        });
-        setChunkTranslations(prev => ({
-            ...prev,
-            [chunkIndex]: { isTranslating: false, text: result.translated_text, error: null }
-        }));
+        const result = await apiRequest('/translate/', 'POST', { text: chunk.content, book: bookId, service: translationService });
+        setChunkTranslations(prev => ({ ...prev, [chunkIndex]: { isTranslating: false, text: result.translated_text, error: null }}));
     } catch (e) {
-        setChunkTranslations(prev => ({
-            ...prev,
-            [chunkIndex]: { isTranslating: false, text: null, error: e.response?.data?.error || 'Ошибка перевода.' }
-        }));
+        setChunkTranslations(prev => ({ ...prev, [chunkIndex]: { isTranslating: false, text: null, error: e.response?.data?.error || 'Translation error.' }}));
     }
   }, [bookId, translationService, chunkTranslations]);
   
@@ -317,6 +319,43 @@ const BookReaderScreen = ({ route, navigation }) => {
     if (newPageNumber > 0 && newPageNumber !== currentPage) setCurrentPage(newPageNumber);
   }, [currentPage]);
   
+  // --- НОВАЯ ФУНКЦИЯ ДЛЯ ОТКРЫТИЯ МОДАЛЬНОГО ОКНА ---
+  const handleOpenCardModal = () => {
+    if (translationResult && !translationResult.error) {
+      // 1) временно скрываем bottom sheet из рендера (чтобы гарантированно не было перекрытия)
+      setSuppressBottomSheet(true);
+
+      // 2) просим bottom sheet закрыться (если он открыт)
+      bottomSheetRef.current?.close();
+
+      // 3) очищаем старый таймаут (если есть) и ставим новый для открытия модалки
+      if (openModalTimeoutRef.current) {
+        clearTimeout(openModalTimeoutRef.current);
+        openModalTimeoutRef.current = null;
+      }
+
+      // 350ms — обычно достаточно, если анимация bottom-sheet 200-300ms; на медленных устройствах можно увеличить
+      openModalTimeoutRef.current = setTimeout(() => {
+        setCardModalVisible(true);
+        openModalTimeoutRef.current = null;
+      }, 350);
+    } else {
+      Alert.alert("Error", "No data to create a card.");
+    }
+  };
+
+  // при закрытии модалки — возвращаем bottom sheet в рендер
+  const handleCloseCardModal = () => {
+    // если был запущен таймаут на открытие — отменяем
+    if (openModalTimeoutRef.current) {
+      clearTimeout(openModalTimeoutRef.current);
+      openModalTimeoutRef.current = null;
+    }
+    setCardModalVisible(false);
+    // даём небольшую задержку, чтобы не дергать bottom sheet сразу во время закрытия модалки
+    setTimeout(() => setSuppressBottomSheet(false), 80);
+  };
+
   const currentTheme = themes[theme];
   const totalChapters = chapterData?.total_chapters || 0;
   const progressPercent = pages.length > 0 ? (currentPage / pages.length) * 100 : 0;
@@ -358,7 +397,7 @@ const BookReaderScreen = ({ route, navigation }) => {
           ) : isPaginating ? (
             <View style={styles.statusContainer}>
                 <ActivityIndicator size="large" color={currentTheme.tint} />
-                <Text style={[styles.statusText, {color: currentTheme.tint}]}>Форматирование страницы...</Text>
+                <Text style={[styles.statusText, {color: currentTheme.tint}]}>Formatting page...</Text>
             </View>
           ) : (
             <FlatList
@@ -383,8 +422,8 @@ const BookReaderScreen = ({ route, navigation }) => {
         <Animated.View style={[styles.header, { backgroundColor: currentTheme.ui_bg, opacity: controlsOpacity, pointerEvents: controlsVisible ? 'auto' : 'none' }]}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconButton}><Ionicons name="arrow-back" size={24} color={currentTheme.tint} /></TouchableOpacity>
             <View style={styles.headerInfo}>
-              <Text style={[styles.headerTitle, {color: currentTheme.tint}]} numberOfLines={1}>{chapterData?.chapter.title || 'Загрузка...'}</Text>
-              <Text style={[styles.progressText, {color: currentTheme.tint}]}>Глава {currentOrder} из {totalChapters || '...'}</Text>
+              <Text style={[styles.headerTitle, {color: currentTheme.tint}]} numberOfLines={1}>{chapterData?.chapter.title || 'Loading...'}</Text>
+              <Text style={[styles.progressText, {color: currentTheme.tint}]}>Chapter {currentOrder} of {totalChapters || '...'}</Text>
             </View>
             <TouchableOpacity style={styles.iconButton}><Ionicons name="bookmark-outline" size={22} color={currentTheme.tint} /></TouchableOpacity>
         </Animated.View>
@@ -392,11 +431,12 @@ const BookReaderScreen = ({ route, navigation }) => {
         <Animated.View style={[styles.footer, { backgroundColor: currentTheme.ui_bg, opacity: controlsOpacity, pointerEvents: controlsVisible ? 'auto' : 'none' }]}>
           <View style={styles.footerContent}>
             <View style={styles.progressFooterContainer}>
-              <Text style={[styles.progressFooterText, {color: currentTheme.tint}]}>Стр. {currentPage} из {pages.length}</Text>
+              <Text style={[styles.progressFooterText, {color: currentTheme.tint}]}>Page. {currentPage} of {pages.length}</Text>
               <View style={styles.progressFooterBar}><View style={[styles.progressFooterFill, { width: `${progressPercent}%`, backgroundColor: currentTheme.tint }]} /></View>
             </View>
             <View style={styles.serviceSelectorContainer}>
                 <TouchableOpacity style={[styles.serviceButton, translationService === 'deepl' && styles.serviceButtonActive]} onPress={() => setTranslationService('deepl')}><Text style={[styles.serviceButtonText, {color: currentTheme.tint}]}>DeepL</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.serviceButton, translationService === 'microsoft' && styles.serviceButtonActive]} onPress={() => setTranslationService('microsoft')}><Text style={[styles.serviceButtonText, {color: currentTheme.tint}]}>Microsoft</Text></TouchableOpacity>
                 <TouchableOpacity style={[styles.serviceButton, translationService === 'chatgpt' && styles.serviceButtonActive]} onPress={() => setTranslationService('chatgpt')}><Text style={[styles.serviceButtonText, {color: currentTheme.tint}]}>GPT-4o</Text></TouchableOpacity>
             </View>
             <View style={styles.settings}>
@@ -412,19 +452,39 @@ const BookReaderScreen = ({ route, navigation }) => {
         </Animated.View>
       </LinearGradient>
 
-      <TranslationBottomSheet 
-        bottomSheetRef={bottomSheetRef} 
-        isTranslating={isTranslating} 
-        translationResult={translationResult} 
-        theme={currentTheme} 
-        onChange={handleSheetChanges}
-        onSpeak={handleSpeak}
-        bookLanguage={chapterData?.chapter?.book_language || 'en-US'}
+      {/* --- ИНТЕРАКТИВНЫЕ КОМПОНЕНТЫ, ВЫНЕСЕННЫЕ ЗА ПРЕДЕЛЫ ГРАДИЕНТА --- */}
+      {/* Если suppressBottomSheet === true — временно не рендерим bottom sheet, чтобы он не перекрывал модалку */}
+      {!suppressBottomSheet && (
+        <TranslationBottomSheet 
+          bottomSheetRef={bottomSheetRef} 
+          isTranslating={isTranslating} 
+          translationResult={translationResult} 
+          theme={currentTheme} 
+          onChange={handleSheetChanges}
+          onSpeak={handleSpeak}
+          bookLanguage={chapterData?.chapter?.book_language || 'en-US'}
+          // Передаем нашу новую функцию в компонент
+          onAddToFlashcards={handleOpenCardModal}
+        />
+      )}
+
+      <AddCardModal
+        visible={isCardModalVisible}
+        onClose={handleCloseCardModal}
+        onCardAdded={() => {
+          Alert.alert("Success", "The card has been added to your deck!");
+          handleCloseCardModal();
+        }}
+        // Передаем начальные данные в модалку
+        initialWord={translationResult?.original_text || translationResult?.source_text || translationResult?.text || ''}
+        initialTranslation={translationResult?.translated_text || translationResult?.translation || ''}
+        initialExample={contextSentence} // Передаем полное предложение как пример
       />
     </GestureHandlerRootView>
   );
 };
 
+// --- СТИЛИ ---
 const styles = StyleSheet.create({
   container: { flex: 1 },
   contentArea: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -441,7 +501,7 @@ const styles = StyleSheet.create({
   progressFooterText: { fontSize: 12, minWidth: 80, textAlign: 'center' },
   progressFooterBar: { flex: 1, height: 3, backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: 1.5 },
   progressFooterFill: { height: '100%', borderRadius: 1.5 },
-  serviceSelectorContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10, height: 25 },
+  serviceSelectorContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, height: 25 }, 
   serviceButton: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 15, borderWidth: 1.5, borderColor: 'transparent' },
   serviceButtonActive: { borderColor: '#3498db', backgroundColor: 'rgba(52, 152, 219, 0.1)' },
   serviceButtonText: { fontSize: 12, fontWeight: '500' },

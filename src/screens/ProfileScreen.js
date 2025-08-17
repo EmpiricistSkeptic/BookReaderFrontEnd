@@ -28,6 +28,7 @@ const LANGUAGE_OPTIONS = [
   { value: 'de', label: 'German' },
   { value: 'zh', label: 'Chinese' },
   { value: 'ja', label: 'Japanese' },
+  { value: 'id', label: 'Indonesian'},
 ];
 
 const LEVEL_OPTIONS = [
@@ -61,7 +62,7 @@ export default function ProfileScreen() {
       setProfile(profileData);
     } catch (error) {
       console.error('Error loading profile:', error);
-      Alert.alert('Ошибка', 'Не удалось загрузить профиль');
+      Alert.alert('Error', 'Failed to load profile');
     } finally {
       setLoading(false);
     }
@@ -89,10 +90,10 @@ export default function ProfileScreen() {
       }
       const updatedProfile = await apiRequest(profileUrl, 'PATCH', formData);
       setProfile(updatedProfile);
-      Alert.alert('Успех', 'Профиль обновлен');
+      Alert.alert('Success', 'Profile updated');
     } catch (error) {
       console.error('Error updating profile:', error);
-      Alert.alert('Ошибка', 'Не удалось обновить профиль');
+      Alert.alert('Error', 'Failed to update profile');
     } finally {
       setUpdating(false);
     }
@@ -101,7 +102,7 @@ export default function ProfileScreen() {
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Ошибка', 'Нужно разрешение для доступа к галерее');
+      Alert.alert('Error', 'Permission is required to access the gallery');
       return;
     }
 
@@ -140,11 +141,11 @@ export default function ProfileScreen() {
 
   const handleSignOut = () => {
     Alert.alert(
-      'Выход',
-      'Вы уверены, что хотите выйти?',
+      'Logout',
+      'Are you sure you want to logout?',
       [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Выйти', onPress: signOut, style: 'destructive' },
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Logout', onPress: signOut, style: 'destructive' },
       ]
     );
   };
@@ -154,7 +155,7 @@ export default function ProfileScreen() {
       <LinearGradient colors={['#1e3c72', '#2a5298']} style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.loadingText}>Загрузка профиля...</Text>
+          <Text style={styles.loadingText}>Loading profile...</Text>
         </View>
       </LinearGradient>
     );
@@ -179,7 +180,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
           
           <Text style={styles.userName}>
-            {user?.first_name || user?.username || 'Пользователь'}
+            {user?.first_name || user?.username || 'User'}
           </Text>
           <Text style={styles.userEmail}>{user?.email}</Text>
         </View>
@@ -280,8 +281,8 @@ export default function ProfileScreen() {
                 <Ionicons name="logo-google" size={24} color="#2a5298" />
               </View>
               <View style={styles.settingContent}>
-                <Text style={styles.settingLabel}>Google аккаунт</Text>
-                <Text style={styles.settingValue}>Подключен</Text>
+                <Text style={styles.settingLabel}>Google account</Text>
+                <Text style={styles.settingValue}>Connected</Text>
               </View>
             </View>
           )}
@@ -304,7 +305,7 @@ export default function ProfileScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>
-              {modalType === 'native' ? 'Родной язык' : 'Изучаемый язык'}
+              {modalType === 'native' ? 'Native language' : 'Language being studied'}
             </Text>
             <ScrollView style={styles.modalList}>
               {LANGUAGE_OPTIONS.map((option) => (
@@ -321,7 +322,7 @@ export default function ProfileScreen() {
               style={styles.modalCancelButton}
               onPress={() => setShowLanguageModal(false)}
             >
-              <Text style={styles.modalCancelButtonText}>Отмена</Text>
+              <Text style={styles.modalCancelButtonText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -336,7 +337,7 @@ export default function ProfileScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Текущий уровень</Text>
+            <Text style={styles.modalTitle}>Current level</Text>
             <ScrollView style={styles.modalList}>
               {LEVEL_OPTIONS.map((option) => (
                 <TouchableOpacity
@@ -352,7 +353,7 @@ export default function ProfileScreen() {
               style={styles.modalCancelButton}
               onPress={() => setShowLevelModal(false)}
             >
-              <Text style={styles.modalCancelButtonText}>Отмена</Text>
+              <Text style={styles.modalCancelButtonText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -363,7 +364,7 @@ export default function ProfileScreen() {
         <View style={styles.uploadingOverlay}>
           <View style={styles.uploadingContainer}>
             <ActivityIndicator size="large" color="#2a5298" />
-            <Text style={styles.uploadingText}>Обновление...</Text>
+            <Text style={styles.uploadingText}>Update...</Text>
           </View>
         </View>
       )}

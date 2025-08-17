@@ -10,7 +10,7 @@ import { getConversationDetails, sendMessage } from '../services/ConversationSer
 import { useHeaderHeight } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// --- НОВЫЙ КОМПОНЕНТ: Приветственный экран для пустого чата ---
+// --- КОМПОНЕНТ: Приветственный экран для пустого чата ---
 const ChatEmptyState = ({ onPromptPress }) => {
   const prompts = [
     { icon: 'checkmark-circle-outline', text: 'Correct my sentence: "I goed to the cinema yesterday."' },
@@ -31,7 +31,7 @@ const ChatEmptyState = ({ onPromptPress }) => {
         <Text style={styles.promptsTitle}>Try asking:</Text>
         {prompts.map((prompt, index) => (
           <TouchableOpacity key={index} style={styles.promptButton} onPress={() => onPromptPress(prompt.text)}>
-            <Ionicons name={prompt.icon} size={22} color="rgba(255,255,255,0.7)" style={styles.promptIcon} />
+            <Ionicons name={prompt.icon} size={22} color="rgba(255,255,25F,0.7)" style={styles.promptIcon} />
             <Text style={styles.promptText}>{prompt.text}</Text>
           </TouchableOpacity>
         ))}
@@ -39,7 +39,6 @@ const ChatEmptyState = ({ onPromptPress }) => {
     </View>
   );
 };
-
 
 // Анимированный индикатор набора текста
 const TypingIndicator = () => {
@@ -106,34 +105,41 @@ const MessageBubble = ({ message }) => {
   );
 };
 
-// Именованный экспорт, как ожидает ваш навигатор
+
 export function ConversationScreen({ route, navigation }) {
   const { conversationId } = route.params;
   const insets = useSafeAreaInsets();
   
-  const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [input, setInput] = useState('');
+  
   const flatListRef = useRef(null);
   const headerHeight = useHeaderHeight();
 
-  // Ваша логика работы с бэкендом
-  useEffect(() => {
-    const loadConversation = async () => {
-      try {
-        const data = await getConversationDetails(conversationId);
-        setConversation(data);
+  const loadConversation = useCallback(async () => {
+    // Не ставим setLoading(true) здесь, чтобы избежать моргания при обновлении после отправки
+    try {
+      const data = await getConversationDetails(conversationId);
+      if (data && Array.isArray(data.messages)) {
         setMessages(data.messages);
-        if (data.title) {
-          navigation.setOptions({ title: data.title });
-        }
-      } catch (error) { console.error("Ошибка загрузки диалога:", error); } 
-      finally { setLoading(false); }
-    };
-    loadConversation();
+      }
+      if (data.title) {
+        navigation.setOptions({ title: data.title });
+      }
+    } catch (error) { 
+      console.error("Error loading dialog:", error);
+      Alert.alert("Error", "Failed to load conversation.");
+    } finally { 
+      setLoading(false); 
+    }
   }, [conversationId, navigation]);
+
+  useEffect(() => {
+    setLoading(true); // Устанавливаем загрузку только при первом монтировании
+    loadConversation();
+  }, [loadConversation]);
 
   const handleSend = async () => {
     if (input.trim().length === 0 || sending) return;
@@ -141,17 +147,23 @@ export function ConversationScreen({ route, navigation }) {
     setInput('');
     setSending(true);
 
-    const optimisticUserMessage = { id: Date.now(), role: 'user', content: userMessageContent };
+    const isFirstMessage = messages.length === 0;
+    const optimisticUserMessage = { id: `optimistic-${Date.now()}`, role: 'user', content: userMessageContent };
     setMessages(prev => [...prev, optimisticUserMessage]);
 
     try {
       const response = await sendMessage(conversationId, userMessageContent);
-      setMessages(prev => [ ...prev.filter(msg => msg.id !== optimisticUserMessage.id), response.user_message, response.ai_response ]);
-      if (!conversation?.title && response?.user_message?.content) {
-        navigation.setOptions({ title: response.user_message.content.substring(0, 20) + '...' });
+      // После успешной отправки, перезагружаем весь чат, чтобы получить актуальные данные
+      await loadConversation();
+
+      if (isFirstMessage) {
+        const newTitle = response.user_message.content.substring(0, 20) + '...';
+        navigation.setOptions({ title: newTitle });
       }
     } catch (error) {
-      console.error("Ошибка отправки сообщения:", error);
+      console.error("Error sending message:", error);
+      Alert.alert("Error", "Failed to send message.");
+      // Возвращаем поле ввода и убираем оптимистичное сообщение в случае ошибки
       setInput(userMessageContent);
       setMessages(prev => prev.filter(msg => msg.id !== optimisticUserMessage.id));
     } finally {
@@ -166,7 +178,6 @@ export function ConversationScreen({ route, navigation }) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }, [sending, input]);
 
-  // Функция для обработки нажатия на подсказку
   const handlePromptPress = (promptText) => {
     setInput(promptText);
   };
@@ -186,8 +197,7 @@ export function ConversationScreen({ route, navigation }) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={headerHeight}
       >
-        {/* Если сообщений нет, показываем приветствие, иначе - список */}
-        {messages.length === 0 ? (
+        {messages.length === 0 && !sending ? (
           <ChatEmptyState onPromptPress={handlePromptPress} />
         ) : (
           <FlatList
@@ -205,7 +215,6 @@ export function ConversationScreen({ route, navigation }) {
             ListFooterComponent={sending ? <TypingIndicator /> : null}
           />
         )}
-
         <View style={[styles.inputContainer, { paddingBottom: insets.bottom > 0 ? insets.bottom : 10 }]}>
           <TextInput
             style={styles.input}
@@ -226,7 +235,6 @@ export function ConversationScreen({ route, navigation }) {
   );
 }
 
-// Стили с добавлением новых для приветственного экрана
 const styles = StyleSheet.create({
     container: {
         flex: 1,
@@ -236,7 +244,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    // --- НОВЫЕ СТИЛИ ДЛЯ ПРИВЕТСТВЕННОГО ЭКРАНА ---
     emptyStateContainer: {
       flex: 1,
       justifyContent: 'center',
@@ -294,7 +301,6 @@ const styles = StyleSheet.create({
       fontSize: 15,
       flex: 1,
     },
-    // --- СТИЛИ ДЛЯ СООБЩЕНИЙ ---
     messageRow: {
         flexDirection: 'row',
         marginVertical: 10,
@@ -340,7 +346,6 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         lineHeight: 22,
     },
-    // --- СТИЛИ ДЛЯ ПОЛЯ ВВОДА ---
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'flex-end',

@@ -1,5 +1,3 @@
-// file: src/components/TextChunk.js
-
 import React, { useMemo, useCallback, useContext, useState } from 'react';
 import { Text, StyleSheet, View, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,7 +26,6 @@ const Word = React.memo(({ text, onWordPress, chunkIndex, wordIndex }) => {
 });
 
 
-// --- TTS: Компонент теперь принимает пропсы onSpeak, speakingIdentifier и bookLanguage ---
 const TextChunk = ({ 
     content, 
     onWordPress, 
@@ -44,7 +41,6 @@ const TextChunk = ({
     const words = useMemo(() => parseContentToWords(content), [content]);
     const [isTranslationVisible, setIsTranslationVisible] = useState(false);
 
-    // --- TTS: Определяем, озвучивается ли именно этот чанк в данный момент ---
     const isSpeaking = useMemo(() => speakingIdentifier === `chunk-${chunkIndex}`, [speakingIdentifier, chunkIndex]);
 
     const handleTranslatePress = useCallback(() => {
@@ -54,16 +50,24 @@ const TextChunk = ({
         setIsTranslationVisible(prev => !prev);
     }, [translationState, onTranslateRequest]);
 
-    // --- TTS: Обработчик для кнопки озвучивания ---
     const handleSpeakPress = useCallback(() => {
-        // Вызываем функцию из BookReaderScreen
         onSpeak(content, `chunk-${chunkIndex}`, bookLanguage);
     }, [onSpeak, content, chunkIndex, bookLanguage]);
 
     return (
         <View style={styles.chunkContainer}>
+            {/* --- ИЗМЕНЕНО: Структура для расположения кнопок по бокам --- */}
             <View style={styles.originalContentWrapper}>
-                {/* Оригинальный текст с кликабельными словами */}
+                {/* Кнопка для озвучивания чанка (слева) */}
+                <TouchableOpacity onPress={handleSpeakPress} style={styles.actionButton}>
+                    <Ionicons 
+                        name={isSpeaking ? "volume-high" : "volume-medium-outline"} 
+                        size={22} 
+                        color={isSpeaking ? '#3498db' : theme.tint} 
+                    />
+                </TouchableOpacity>
+
+                {/* Оригинальный текст с кликабельными словами (в центре) */}
                 <Text style={[style, styles.textBlock]}>
                     {words.map((wordData, mapIndex) => {
                         if (wordData.type === 'word') {
@@ -81,23 +85,10 @@ const TextChunk = ({
                     })}
                 </Text>
 
-                {/* --- TTS: Контейнер для кнопок действий (озвучивание и перевод) --- */}
-                <View style={styles.actionsContainer}>
-                    {/* Кнопка для озвучивания всего чанка */}
-                    <TouchableOpacity onPress={handleSpeakPress} style={styles.actionButton}>
-                        <Ionicons 
-                            // --- TTS: Меняем иконку и цвет в зависимости от состояния озвучивания ---
-                            name={isSpeaking ? "volume-high" : "volume-medium-outline"} 
-                            size={22} 
-                            color={isSpeaking ? '#3498db' : theme.tint} // Яркий цвет для активного состояния
-                        />
-                    </TouchableOpacity>
-
-                    {/* Кнопка для перевода всего чанка */}
-                    <TouchableOpacity onPress={handleTranslatePress} style={styles.actionButton}>
-                        <Ionicons name="language-outline" size={22} color={theme.tint} />
-                    </TouchableOpacity>
-                </View>
+                {/* Кнопка для перевода чанка (справа) */}
+                <TouchableOpacity onPress={handleTranslatePress} style={styles.actionButton}>
+                    <Ionicons name="language-outline" size={22} color={theme.tint} />
+                </TouchableOpacity>
             </View>
 
             {/* Блок с результатом перевода остается без изменений */}
@@ -129,20 +120,15 @@ const styles = StyleSheet.create({
     originalContentWrapper: {
         flexDirection: 'row',
         alignItems: 'flex-start',
-        justifyContent: 'space-between', // Распределяем место между текстом и кнопками
+        justifyContent: 'space-between', // Распределяет элементы: первый слева, последний справа
     },
     textBlock: {
-        flex: 1,
-        marginRight: 8,
+        flex: 1, // Текст занимает все доступное пространство между кнопками
+        marginHorizontal: 8, // --- ИЗМЕНЕНО: Отступы слева и справа от текста
     },
-    // --- TTS: Новый контейнер для группировки кнопок ---
-    actionsContainer: {
-        flexDirection: 'column', // Располагаем кнопки друг под другом
-        alignItems: 'center',
-    },
-    // --- TTS: Переименовано из translateButton в actionButton для универсальности ---
-    actionButton: {
-        paddingVertical: 6, // Увеличиваем область нажатия
+    // --- УДАЛЕНО: стиль actionsContainer больше не нужен ---
+    actionButton: { // Стиль применяется к обеим кнопкам
+        paddingVertical: 6,
         paddingHorizontal: 4,
     },
     translationContainer: {
@@ -157,3 +143,4 @@ const styles = StyleSheet.create({
         fontSize: 14,
     }
 });
+

@@ -20,8 +20,8 @@ const BookDetailScreen = ({ route, navigation }) => {
         const data = await apiRequest(`/books/${bookId}/`);
         setBookDetail(data);
       } catch (e) {
-        setError(e.message || 'Не удалось загрузить данные о книге');
-        Alert.alert('Ошибка', e.message || 'Не удалось загрузить данные о книге');
+        setError(e.message || 'Failed to load book data');
+        Alert.alert('Error', e.message || 'Failed to load book data');
       } finally {
         setLoading(false);
       }
@@ -70,7 +70,7 @@ const BookDetailScreen = ({ route, navigation }) => {
     return (
       <LinearGradient colors={['#1e3c72', '#2a5298']} style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#fff" />
-        <Text style={styles.loadingText}>Загрузка книги...</Text>
+        <Text style={styles.loadingText}>Loading book...</Text>
       </LinearGradient>
     );
   }
@@ -79,9 +79,9 @@ const BookDetailScreen = ({ route, navigation }) => {
     return (
       <LinearGradient colors={['#c0392b', '#8e44ad']} style={styles.centerContainer}>
          <Ionicons name="close-circle-outline" size={60} color="rgba(255,255,255,0.7)" />
-        <Text style={styles.errorText}>Не удалось загрузить книгу</Text>
+        <Text style={styles.errorText}>Failed to load book</Text>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.backButtonText}>Вернуться</Text>
+          <Text style={styles.backButtonText}>Return</Text>
         </TouchableOpacity>
       </LinearGradient>
     );
@@ -105,7 +105,7 @@ const BookDetailScreen = ({ route, navigation }) => {
             )}
           </View>
           <Text style={styles.title}>{bookDetail.title}</Text>
-          <Text style={styles.author}>{bookDetail.authors || 'Автор не указан'}</Text>
+          <Text style={styles.author}>{bookDetail.authors || 'Author not specified'}</Text>
 
           <TouchableOpacity 
             style={styles.continueButton} 
@@ -118,20 +118,20 @@ const BookDetailScreen = ({ route, navigation }) => {
             />
             <Text style={styles.continueButtonText}>
               {bookDetail.user_progress 
-                ? `Продолжить с главы ${bookDetail.user_progress.last_read_chapter_order}`
-                : 'Начать чтение'
+                ? `Continue from chapter ${bookDetail.user_progress.last_read_chapter_order}`
+                : 'Start reading'
               }
             </Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.infoSection}>
-          <Text style={styles.sectionTitle}>Описание</Text>
-          <Text style={styles.description}>{bookDetail.description || 'Описание отсутствует.'}</Text>
+          <Text style={styles.sectionTitle}>Description</Text>
+          <Text style={styles.description}>{bookDetail.description || 'No description available.'}</Text>
         </View>
 
          <View style={styles.infoSection}>
-          <Text style={styles.sectionTitle}>Главы ({bookDetail.chapter_count})</Text>
+          <Text style={styles.sectionTitle}>Chapters ({bookDetail.chapter_count})</Text>
           {bookDetail.chapters.map((chapter) => {
             
             const isLastRead = chapter.order === bookDetail.user_progress?.last_read_chapter_order;

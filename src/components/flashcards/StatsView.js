@@ -34,9 +34,9 @@ const CardStack = ({ onPress, cardsDue }) => {
                 <View style={[styles.cardStackItem, styles.cardStackItem2]} />
                 <View style={[styles.cardStackItem, styles.cardStackItem1]}>
                     <Ionicons name="play-circle-outline" size={60} color={isDisabled ? '#a5b4c8' : '#1e3c72'} />
-                    <Text style={[styles.cardStackTitle, isDisabled && styles.disabledText]}>Начать сессию</Text>
+                    <Text style={[styles.cardStackTitle, isDisabled && styles.disabledText]}>Start session</Text>
                     <Text style={[styles.cardStackSubtitle, isDisabled && styles.disabledText]}>
-                        {isDisabled ? 'Нет карточек для повторения' : `${cardsDue} карточек на сегодня`}
+                        {isDisabled ? 'No cards to review' : `${cardsDue} cards`}
                     </Text>
                 </View>
             </Animated.View>
@@ -49,8 +49,8 @@ export default function StatsView({ stats, isLoading, onStartSession, onChipPres
     return (
         <View style={styles.statsScreenContainer}>
             <View style={styles.header}>
-                <Text style={styles.title}>Мои карточки</Text>
-                <Text style={styles.subtitle}>Выберите сессию для тренировки</Text>
+                <Text style={styles.title}>My cards</Text>
+                <Text style={styles.subtitle}>Select a session for training</Text>
             </View>
             
             <View style={styles.statsContainer}>
@@ -58,32 +58,32 @@ export default function StatsView({ stats, isLoading, onStartSession, onChipPres
                     {/* ИЗМЕНЕНИЕ 1: Этот чип остается, так как 'due_today' есть в новой статистике */}
                     <StatChip 
                         value={stats?.due_today ?? '...'} 
-                        label="На сегодня" 
+                        label="For today" 
                         icon="calendar-outline"
-                        onPress={() => onChipPress('На сегодня', { is_due: true })}
+                        onPress={() => onChipPress('For today', { is_due: true })}
                     />
                     {/* ИЗМЕНЕНИЕ 2: Заменяем 'known_cards' на 'learning_now' */}
                     <StatChip 
                         value={stats?.learning_now ?? '...'} 
-                        label="На изучении" 
+                        label="On study" 
                         icon="hourglass-outline"
                         // Фильтр теперь будет по is_learning=true и is_due=true
-                        onPress={() => onChipPress('На изучении', { is_due: true, is_learning: true })}
+                        onPress={() => onChipPress('On study', { is_due: true, is_learning: true })}
                     />
                     {/* ИЗМЕНЕНИЕ 3: Заменяем 'learned_cards' на 'reviewing' */}
                     <StatChip 
                         value={stats?.reviewing ?? '...'} 
-                        label="На повторении" 
+                        label="On repeat" 
                         icon="sync-circle-outline"
                         // Фильтр теперь будет по is_learning=false и is_due=true
-                        onPress={() => onChipPress('На повторении', { is_due: true, is_learning: false })}
+                        onPress={() => onChipPress('On repeat', { is_due: true, is_learning: false })}
                     />
                     {/* ИЗМЕНЕНИЕ 4: Добавляем чип для всех карточек */}
                     <StatChip 
                         value={stats?.total_cards ?? '...'} 
-                        label="Всего карточек" 
+                        label="Total cards" 
                         icon="albums-outline"
-                        onPress={() => onChipPress('Все карточки', {})}
+                        onPress={() => onChipPress('Total cards', {})}
                     />
                 </ScrollView>
             </View>

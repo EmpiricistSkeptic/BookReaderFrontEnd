@@ -3,19 +3,23 @@ import { apiRequest } from './ApiService';
 const CONVERSATIONS_ENDPOINT = '/conversations/';
 
 /**
- * Получить список всех диалогов пользователя.
- * @returns {Promise<Array>} - Массив диалогов.
+ * Получить список всех диалогов пользователя (с пагинацией).
+ * @param {number} page - Номер страницы.
+ * @returns {Promise<object>} - Пагинированный список диалогов.
  */
-export const getConversations = async () => {
-  return await apiRequest(CONVERSATIONS_ENDPOINT, 'GET');
+export const getConversations = async (page = 1) => {
+  // Эта функция остается с пагинацией, она работает правильно.
+  return await apiRequest(`${CONVERSATIONS_ENDPOINT}?page=${page}`, 'GET');
 };
 
 /**
- * Получить детали конкретного диалога со всеми сообщениями.
+ * Получить детали конкретного диалога со всеми сообщениями (БЕЗ пагинации).
  * @param {number} conversationId - ID диалога.
- * @returns {Promise<object>} - Объект диалога с сообщениями.
+ * @returns {Promise<object>} - Объект диалога с полным списком сообщений.
  */
 export const getConversationDetails = async (conversationId) => {
+  // --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+  // Убираем параметр 'page' из функции и из URL.
   return await apiRequest(`${CONVERSATIONS_ENDPOINT}${conversationId}/`, 'GET');
 };
 
@@ -48,6 +52,5 @@ export const sendMessage = async (conversationId, message) => {
  * @returns {Promise<void>}
  */
 export const deleteConversation = async (conversationId) => {
-  // DELETE запросы обычно не возвращают тело, поэтому просто ждем ответа
   await apiRequest(`${CONVERSATIONS_ENDPOINT}${conversationId}/`, 'DELETE');
 };
