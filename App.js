@@ -1,7 +1,29 @@
+// App.js
+
 import React, { useContext } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { GestureHandlerRootView } from 'react-native-gesture-handler'; 
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
+// ================== НАШ НОВЫЙ КОД (НАЧАЛО) ==================
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
+// Конфигурируем Google Sign-In один раз при запуске приложения
+GoogleSignin.configure({
+  // Этот ID ОБЯЗАТЕЛЕН. Он говорит Google, для какого бэкенда (вашего Django)
+  // предназначен получаемый idToken.
+  webClientId: '810125388845-8h7497k526cp1nh6nmnht7us0l6ofgf1.apps.googleusercontent.com',
+
+  // offlineAccess: true гарантирует, что мы получим idToken при каждом входе,
+  // что критически важно для нашей схемы.
+  offlineAccess: true,
+  
+  // Эти ID нужны для корректной работы нативного SDK на каждой платформе.
+  // Это ваши НОВЫЕ ключи, которые вы только что создали.
+  androidClientId: '810125388845-5tialrs4v98rl53j7e2kg0pjhiab0bmb.apps.googleusercontent.com',
+  iosClientId: '810125388845-0iabq7p8sc82ejhbga2t8uc9i0bbt79g.apps.googleusercontent.com',
+});
+// =================== НАШ НОВЫЙ КОД (КОНЕЦ) ===================
 
 import { AuthProvider, AuthContext } from './src/contexts/AuthContext';
 import { SelectionProvider } from './src/contexts/SelectionContext';
